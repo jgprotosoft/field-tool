@@ -48,7 +48,7 @@
       t.readOnly = !!o.readOnly;
       const done = (v) => { d.close(); res(v); };
       d.oncancel = () => res(null);
-      bx.innerHTML = "";
+      bx.innerHTML = ""; bx.className = o.list ? "btns list" : "btns end";
       for (const [label, val, primary] of o.buttons) {
         const b = document.createElement("button");
         b.type = "button"; b.textContent = label;
@@ -762,18 +762,91 @@
     $("inGrid").value = S.grid; $("inGridReal").value = S.gridReal; $("inDepth").value = S.depth; $("inMargin").value = S.airMargin; $("inMesh").value = S.meshN; $("inBc").value = S.bcElec;
     setPhysics(S.physics);
   }
-  function example() {
+  // ---------- exemples ----------
+  function exampleKit() {
     const edges = [];
     const poly = (p) => p.forEach((a, i) => { const b = p[(i + 1) % p.length]; edges.push({ type: "line", ax: a[0], ay: a[1], bx: b[0], by: b[1] }); });
-    poly([[0, 0], [60, 0], [60, 28], [45, 28], [45, 15], [15, 15], [15, 45], [45, 45], [45, 32], [60, 32], [60, 60], [0, 60]]);
-    poly([[15, 20], [22, 20], [22, 40], [15, 40]]);
-    poly([[-7, 20], [0, 20], [0, 40], [-7, 40]]);
-    const L = (x, y, mat, NI) => ({ x, y, mat, srcType: NI ? "NI" : "none", srcVal: NI || 0, magAngle: 0, elecType: "none", elecVal: 0 });
-    return { S: Object.assign(defaults(), { edges, labels: [L(7, 7, "steel"), L(18.5, 30, "cu", 800), L(-3.5, 30, "cu", -800)] }) };
+    const rect = (x0, y0, x1, y1) => poly([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+    const circle = (cx, cy, r) => {
+      edges.push({ type: "arc", ax: cx + r, ay: cy, bx: cx - r, by: cy, bulge: 1 });
+      edges.push({ type: "arc", ax: cx - r, ay: cy, bx: cx + r, by: cy, bulge: 1 });
+    };
+    const L = (x, y, mat, o = {}) => ({
+      x, y, mat, srcType: o.NI ? "NI" : o.J ? "J" : "none", srcVal: o.NI || o.J || 0, magAngle: o.ang || 0,
+      elecType: o.V != null ? "V" : "none", elecVal: o.V || 0,
+    });
+    const make = (labels, opts) => ({ S: Object.assign(defaults(), opts, { edges, labels }) });
+    return { poly, rect, circle, L, make };
   }
+  const EXAMPLES = [
+    {
+      name: "Électroaimant en C", desc: "Acier doux, entrefer 4 mm, bobine 800 A·t",
+      build() {
+        const { poly, L, make } = exampleKit();
+        poly([[0, 0], [60, 0], [60, 28], [45, 28], [45, 15], [15, 15], [15, 45], [45, 45], [45, 32], [60, 32], [60, 60], [0, 60]]);
+        poly([[15, 20], [22, 20], [22, 40], [15, 40]]);
+        poly([[-7, 20], [0, 20], [0, 40], [-7, 40]]);
+        return make([L(7, 7, "steel"), L(18.5, 30, "cu", { NI: 800 }), L(-3.5, 30, "cu", { NI: -800 })], { grid: 5 });
+      },
+    },
+    {
+      name: "Inductance ferrite E-I", desc: "Entrefer 0,5 mm sur la jambe centrale, 50 A·t : lire A_L",
+      build() {
+        const { poly, rect, L, make } = exampleKit();
+        poly([[0, 6], [5, 6], [5, 25], [15, 25], [15, 6.5], [25, 6.5], [25, 25], [35, 25], [35, 6], [40, 6], [40, 30], [0, 30]]);
+        rect(0, 0, 40, 6);
+        rect(7, 8.5, 14, 23);
+        rect(26, 8.5, 33, 23);
+        return make([L(2.5, 28, "ferrite"), L(20, 3, "ferrite"), L(10.5, 15, "cu", { NI: 50 }), L(29.5, 15, "cu", { NI: -50 })], { grid: 0.5, gridReal: 5, depth: 15 });
+      },
+    },
+    {
+      name: "Électroaimant de levage", desc: "Culasse en U et armature à 2 mm : force d'attraction",
+      build() {
+        const { poly, rect, L, make } = exampleKit();
+        poly([[0, 10], [15, 10], [15, 35], [45, 35], [45, 10], [60, 10], [60, 50], [0, 50]]);
+        rect(0, 0, 60, 8);
+        rect(15, 14, 22, 33); rect(38, 14, 45, 33);
+        rect(-7, 14, 0, 33); rect(60, 14, 67, 33);
+        return make([
+          L(30, 45, "steel"), L(30, 4, "steel"),
+          L(18.5, 24, "cu", { NI: 1000 }), L(41.5, 24, "cu", { NI: 1000 }),
+          L(-3.5, 24, "cu", { NI: -1000 }), L(63.5, 24, "cu", { NI: -1000 }),
+        ], { grid: 1, gridReal: 10, depth: 30 });
+      },
+    },
+    {
+      name: "Circuit à aimant NdFeB", desc: "Aimant dans la culasse, entrefer 4 mm, sans bobine",
+      build() {
+        const { poly, rect, L, make } = exampleKit();
+        poly([[0, 0], [50, 0], [50, 18], [40, 18], [40, 10], [10, 10], [10, 30], [40, 30], [40, 22], [50, 22], [50, 40], [0, 40]]);
+        rect(0, 15, 10, 25);
+        return make([L(25, 5, "steel"), L(25, 35, "steel"), L(5, 20, "ndfeb", { ang: 90 })], { grid: 1, gridReal: 10, depth: 20 });
+      },
+    },
+    {
+      name: "Condensateur plan FR4", desc: "Armatures 100 V / 0 V, 4 mm de FR4 : capacité et effets de bord",
+      build() {
+        const { rect, L, make } = exampleKit();
+        rect(0, 6, 40, 8); rect(0, 2, 40, 6); rect(0, 0, 40, 2);
+        return make([L(20, 7, "cu", { V: 100 }), L(20, 4, "fr4"), L(20, 1, "cu", { V: 0 })], { physics: "elec", grid: 1, gridReal: 10, depth: 40 });
+      },
+    },
+    {
+      name: "Câble coaxial", desc: "Âme à 100 V, isolant PTFE, blindage à 0 V : champ et capacité linéique",
+      build() {
+        const { circle, L, make } = exampleKit();
+        circle(0, 0, 1.5); circle(0, 0, 5); circle(0, 0, 6);
+        return make([L(0, 0, "cu", { V: 100 }), L(3, 0, "ptfe"), L(5.5, 0, "cu", { V: 0 })], { physics: "elec", grid: 0.5, gridReal: 1, depth: 1000, airMargin: 0.5 });
+      },
+    },
+  ];
+  const example = (i = 0) => EXAMPLES[i].build();
   const sure = (msg) => (S.edges.length ? ask({ msg, buttons: [["Annuler", null], ["Continuer", true, 1]] }) : Promise.resolve(true));
   $("btnNew").onclick = () => sure("Effacer le dessin en cours ?").then((ok) => { if (ok) { loadProject({ S: Object.assign(defaults(), { grid: S.grid, gridReal: S.gridReal, customMats: S.customMats }) }); fit(); } });
-  $("btnExample").onclick = () => sure("Remplacer le dessin en cours par l'exemple (circuit en C avec entrefer) ?").then((ok) => { if (ok) { loadProject(example()); fit(); } });
+  $("btnExample").onclick = () =>
+    ask({ msg: "Choisissez un exemple :", list: true, buttons: EXAMPLES.map((ex, i) => [ex.name + "\n" + ex.desc, i]).concat([["Annuler", null]]) })
+      .then((i) => { if (i == null) return; return sure("Remplacer le dessin en cours par « " + EXAMPLES[i].name + " » ?").then((ok) => { if (ok) { loadProject(example(i)); fit(); } }); });
   $("btnSave").onclick = () => {
     const json = JSON.stringify({ app: "FieldTool", version: 1, S, view });
     ask({
@@ -830,5 +903,5 @@
   if (stored && stored.S && Array.isArray(stored.S.edges)) loadProject(stored); else { syncInputs(); updateUI(); }
   if (window.innerWidth < 820) $("panel").classList.add("hidden");
   resize();
-  window.FTapp = { get S() { return S; }, get mesh() { return mesh; }, get result() { return result; }, loadProject, example, solve, fit, setTool };
+  window.FTapp = { get S() { return S; }, get mesh() { return mesh; }, get result() { return result; }, loadProject, example, examples: EXAMPLES, solve, fit, setTool };
 })();

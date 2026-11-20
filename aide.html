@@ -118,7 +118,8 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
     <li><a href="#materiaux">Matériaux et sources</a></li>
     <li><a href="#calcul">Calculer et lire les résultats</a></li>
     <li><a href="#sonde">La sonde</a></li>
-    <li><a href="#exemple">Exemple : électroaimant en C</a></li>
+    <li><a href="#exemples">Les six exemples</a></li>
+    <li><a href="#exemple">Pas à pas : électroaimant en C</a></li>
     <li><a href="#croquis">Partir d'un croquis Freeform</a></li>
     <li><a href="#fichiers">Enregistrer et ouvrir</a></li>
     <li><a href="#reglages">Réglages du modèle</a></li>
@@ -133,7 +134,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 <section id="essai">
   <h2><span class="n">1</span>Premier essai en 2 minutes</h2>
   <ol class="steps">
-    <li>Touchez <span class="chip">Réglages</span> (en haut à droite) pour ouvrir le panneau, puis <span class="chip light">Exemple</span> dans la partie Fichier. Un circuit en C en acier avec entrefer et une bobine de 800 A·t apparaît.</li>
+    <li>Touchez <span class="chip">Réglages</span> (en haut à droite) pour ouvrir le panneau, puis <span class="chip light">Exemple</span> dans la partie Fichier, et choisissez <b>Électroaimant en C</b> : un circuit en acier avec entrefer et une bobine de 800 A·t apparaît.</li>
     <li>Touchez <span class="chip go">Calculer</span>. Les couleurs donnent |B| en tesla, les lignes blanches sont les lignes de flux.</li>
     <li>Choisissez <span class="chip">Sonde</span> et touchez l'entrefer : la valeur de B s'affiche en haut à gauche.</li>
     <li>Choisissez <span class="chip">Dessiner</span> : le résultat disparaît, vous êtes revenu en mode édition.</li>
@@ -335,8 +336,22 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
   <div class="warn"><b>Force</b> Elle n'est fiable que pour une pièce entourée d'air (par exemple la partie mobile séparée par l'entrefer). Pour une pièce en contact avec une autre, la valeur est marquée « indicative ».</div>
 </section>
 
+<section id="exemples">
+  <h2><span class="n">10</span>Les six exemples</h2>
+  <p><span class="chip">Réglages</span> → <span class="chip light">Exemple</span> ouvre la liste. Chaque exemple règle lui-même la grille, la profondeur et le type de calcul ; il ne reste qu'à toucher <span class="chip go">Calculer</span>.</p>
+  <div class="tbl"><table>
+    <tr><th>Exemple</th><th>Ce qu'il montre</th><th>À regarder</th></tr>
+    <tr><td><b>Électroaimant en C</b><br>acier doux, 800 A·t</td><td>Circuit magnétique simple avec entrefer de 4 mm.</td><td>|B| dans l'entrefer avec la sonde ; passer à 3000 A·t pour voir la saturation.</td></tr>
+    <tr><td><b>Inductance ferrite E-I</b><br>ferrite MnZn, 50 A·t</td><td>Bobine sur la jambe centrale, entrefer de 0,5 mm sur cette jambe seulement.</td><td>A<sub>L</sub> dans les résultats (environ 430 nH/spire²) ; l'inductance vaut A<sub>L</sub> × N².</td></tr>
+    <tr><td><b>Électroaimant de levage</b><br>culasse en U, 2 × 1000 A·t</td><td>Armature mobile séparée de 2 mm, entourée d'air.</td><td>Force sur l'armature avec la sonde (Fy positif = attirée, environ 140 N).</td></tr>
+    <tr><td><b>Circuit à aimant NdFeB</b><br>sans bobine</td><td>Aimant aimanté vers le haut (90°) dans la jambe gauche, entrefer à droite.</td><td>|B| dans l'entrefer ; changer la direction d'aimantation avec l'outil Matériau.</td></tr>
+    <tr><td><b>Condensateur plan FR4</b><br>100 V / 0 V</td><td>Deux armatures, 4 mm de FR4 entre elles.</td><td>Capacité (environ 17 pF, contre 15,6 pF sans effets de bord) et |E| aux bords des armatures.</td></tr>
+    <tr><td><b>Câble coaxial</b><br>âme 100 V, blindage 0 V</td><td>Géométrie en cercles, isolant PTFE, profondeur 1 m.</td><td>Capacité linéique (97,5 pF/m, théorie 97,0) et |E| maximal contre l'âme.</td></tr>
+  </table></div>
+</section>
+
 <section id="exemple">
-  <h2><span class="n">10</span>Exemple : électroaimant en C</h2>
+  <h2><span class="n">11</span>Pas à pas : électroaimant en C</h2>
   <figure>
     <svg viewBox="0 0 560 230" role="img" aria-label="Circuit en C avec entrefer à droite et bobine en deux zones autour de la jambe gauche">
       <defs><pattern id="g2" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="var(--grid)" stroke-width="1"/></pattern></defs>
@@ -366,7 +381,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="croquis">
-  <h2><span class="n">11</span>Partir d'un croquis Freeform</h2>
+  <h2><span class="n">12</span>Partir d'un croquis Freeform</h2>
   <ol class="steps">
     <li>Dans Freeform, exportez le croquis en image (Partager → Exporter en PNG ou capture d'écran), enregistrée dans Photos ou Fichiers.</li>
     <li>Dans Field Tool : <span class="chip">Réglages</span> → Image de fond → <span class="chip light">Importer</span>.</li>
@@ -377,7 +392,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="fichiers">
-  <h2><span class="n">12</span>Enregistrer et ouvrir</h2>
+  <h2><span class="n">13</span>Enregistrer et ouvrir</h2>
   <ul>
     <li><b>Sauvegarde automatique</b> : le dessin en cours est conservé dans l'iPad, et vous le retrouvez à la réouverture. Chaque appareil, et chaque navigateur, a sa propre sauvegarde.</li>
     <li><b>Enregistrer</b> : affiche le projet sous forme de texte. Touchez <b>Copier</b>, puis collez ce texte dans Notes ou dans un fichier. Sur PC, <b>Télécharger</b> crée un fichier <code>.json</code>.</li>
@@ -388,7 +403,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="reglages">
-  <h2><span class="n">13</span>Réglages du modèle</h2>
+  <h2><span class="n">14</span>Réglages du modèle</h2>
   <div class="tbl"><table>
     <tr><th>Réglage</th><th>Effet</th></tr>
     <tr><td>Marge d'air (× taille)</td><td>Taille de la boîte d'air autour du dessin. 1 = une fois la taille du dessin de chaque côté. Augmentez-la si le champ de fuite compte (aimant seul, bobine sans noyau).</td></tr>
@@ -399,7 +414,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="limites">
-  <h2><span class="n">14</span>Précision et limites</h2>
+  <h2><span class="n">15</span>Précision et limites</h2>
   <ul>
     <li><b>2D plan</b> : la pièce est supposée infiniment longue selon la profondeur. Pas encore de calcul axisymétrique (pièces de révolution).</li>
     <li><b>Précision</b> : environ 2 à 5 % sur les valeurs locales avec la finesse par défaut. Pour vérifier un chiffre, augmentez la finesse et regardez s'il bouge.</li>
