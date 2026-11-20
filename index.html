@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Field Tool">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1c2733">
+<title>Field Tool</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<script>
+  // Mode hors connexion (uniquement servi en http/https, ignoré en double-clic file://)
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol))
+    addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
+</head>
+<body>
+<header id="bar">
+  <div class="brand">Field Tool</div>
+  <div class="grp" id="tools">
+    <button data-tool="draw" class="on" title="Tracer à main levée (D)">Dessiner</button>
+    <button data-tool="edit" title="Sélectionner une arête, déplacer un sommet (S)">Modifier</button>
+    <button data-tool="erase" title="Effacer les arêtes touchées (E)">Gomme</button>
+    <button data-tool="mat" title="Toucher une zone pour choisir son matériau (M)">Matériau</button>
+    <button data-tool="probe" title="Lire les valeurs du champ (P)">Sonde</button>
+    <button data-tool="pan" title="Déplacer la vue">Vue</button>
+  </div>
+  <div class="grp">
+    <button id="btnUndo" title="Annuler (Ctrl+Z)">Annuler</button>
+    <button id="btnRedo" title="Rétablir (Ctrl+Y)">Rétablir</button>
+    <button id="btnDel" title="Supprimer l'arête sélectionnée" disabled>Supprimer</button>
+    <button id="btnFit" title="Ajuster la vue au dessin">Ajuster</button>
+  </div>
+  <div class="grp seg" id="phys">
+    <button data-phys="mag" class="on">Magnétique</button>
+    <button data-phys="elec">Électrique</button>
+  </div>
+  <button id="btnSolve" class="primary">Calculer</button>
+  <div class="spacer"></div>
+  <button id="btnPanel" title="Afficher / masquer le panneau">Réglages</button>
+</header>
+
+<main>
+  <div id="wrap">
+    <canvas id="gl"></canvas>
+    <canvas id="cv"></canvas>
+    <div id="readout" hidden></div>
+    <div id="toast" hidden></div>
+  </div>
+  <aside id="panel">
+    <section>
+      <h2>Modèle</h2>
+      <label>Grille de dessin (mm) <input id="inGrid" type="number" min="0.01" step="any" inputmode="decimal" title="Pas d'accrochage des segments et des arcs"></label>
+      <label>Grille réelle (mm) <input id="inGridReal" type="number" min="0.01" step="any" inputmode="decimal" title="Quadrillage gradué en millimètres, pour lire les dimensions"></label>
+      <label>Profondeur (mm) <input id="inDepth" type="number" min="0.01" step="any" inputmode="decimal"></label>
+      <label>Marge d'air (× taille) <input id="inMargin" type="number" min="0.2" max="10" step="0.1" inputmode="decimal"></label>
+      <label>Finesse du maillage <input id="inMesh" type="range" min="15" max="100" step="5"></label>
+      <label>Frontière (électrique)
+        <select id="inBc"><option value="V0">Potentiel 0 V</option><option value="none">Isolée</option></select>
+      </label>
+      <p class="hint" id="meshInfo">Aucun maillage</p>
+    </section>
+    <section>
+      <h2>Affichage</h2>
+      <label>Grandeur <select id="inQty"></select></label>
+      <label>Échelle max <input id="inMax" type="number" step="any" placeholder="auto" inputmode="decimal"></label>
+      <label class="chk"><input id="ckLines" type="checkbox" checked> Lignes de champ</label>
+      <label class="chk"><input id="ckArrows" type="checkbox"> Flèches</label>
+      <label class="chk"><input id="ckMesh" type="checkbox"> Maillage</label>
+      <label class="chk"><input id="ckDims" type="checkbox" checked> Cotes</label>
+    </section>
+    <section>
+      <h2>Résultats</h2>
+      <div id="results" class="results">Dessinez un circuit, affectez les matériaux puis lancez le calcul.</div>
+    </section>
+    <section>
+      <h2>Fichier</h2>
+      <div class="btns">
+        <button id="btnNew">Nouveau</button>
+        <button id="btnExample">Exemple</button>
+        <button id="btnSave">Enregistrer</button>
+        <button id="btnOpen">Ouvrir</button>
+      </div>
+      <h2>Image de fond (Freeform, photo…)</h2>
+      <div class="btns">
+        <button id="btnImg">Importer</button>
+        <button id="btnCalib" disabled>Mettre à l'échelle</button>
+        <button id="btnImgDel" disabled>Retirer</button>
+      </div>
+      <label>Opacité <input id="inAlpha" type="range" min="0.1" max="1" step="0.05" value="0.5"></label>
+      <input id="fileOpen" type="file" accept=".json,application/json" hidden>
+      <input id="fileImg" type="file" accept="image/*" hidden>
+    </section>
+  </aside>
+</main>
+<footer id="status"><span id="stPos"></span><span id="stMsg"></span></footer>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <h2>Propriétés de la zone</h2>
+    <label>Matériau <select id="dMat"></select></label>
+    <details id="dCustom">
+      <summary>Créer un matériau personnalisé</summary>
+      <label>Nom <input id="cName" type="text" placeholder="Mon matériau"></label>
+      <label>µr (perméabilité relative) <input id="cMur" type="number" step="any" value="1000"></label>
+      <label>Js saturation (T, 0 = linéaire) <input id="cJs" type="number" step="any" value="0"></label>
+      <label>Br aimant (T, 0 = aucun) <input id="cBr" type="number" step="any" value="0"></label>
+      <label>εr (permittivité relative) <input id="cEps" type="number" step="any" value="1"></label>
+      <label class="chk"><input id="cCond" type="checkbox"> Conducteur électrique</label>
+      <button type="button" id="cAdd">Ajouter ce matériau</button>
+    </details>
+    <fieldset id="dMagnet">
+      <legend>Aimantation</legend>
+      <label>Direction (°, 0 = +x, 90 = +y) <input id="dAngle" type="number" step="any" value="0"></label>
+      <div class="btns"><button type="button" data-ang="0">→</button><button type="button" data-ang="90">↑</button><button type="button" data-ang="180">←</button><button type="button" data-ang="270">↓</button></div>
+    </fieldset>
+    <fieldset id="dFsMag">
+      <legend>Source magnétique</legend>
+      <label>Type <select id="dSrc"><option value="none">Aucune</option><option value="NI">Ampères-tours totaux (A·t)</option><option value="J">Densité de courant (A/mm²)</option></select></label>
+      <label>Valeur (+ = sortant ⊙, − = entrant ⊗) <input id="dSrcVal" type="number" step="any" value="0"></label>
+    </fieldset>
+    <fieldset id="dFsElec">
+      <legend>Source électrique</legend>
+      <label>Type <select id="dElec"><option value="none">Aucune</option><option value="V">Potentiel imposé (V)</option><option value="rho">Densité de charge (C/m³)</option></select></label>
+      <label>Valeur <input id="dElecVal" type="number" step="any" value="0"></label>
+    </fieldset>
+    <div class="btns end">
+      <button type="button" id="dReset">Remettre en air</button>
+      <button type="button" id="dCancel">Annuler</button>
+      <button type="button" id="dOk" class="primary">Valider</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ask">
+  <form method="dialog">
+    <p id="askMsg"></p>
+    <input id="askIn" type="number" step="any" inputmode="decimal" hidden>
+    <textarea id="askTxt" rows="8" spellcheck="false" hidden></textarea>
+    <div class="btns end" id="askBtns"></div>
+  </form>
+</dialog>
+
+<script src="js/materials.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/mesher.js"></script>
+<script src="js/fem.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
