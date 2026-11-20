@@ -1,8 +1,8 @@
 // Service worker : garde l'application en cache pour l'utiliser hors connexion.
 // En ligne, on prend la version du serveur (et on met le cache à jour) ; hors ligne, on sert le cache.
-const CACHE = "fieldtool-v1";
+const CACHE = "fieldtool-v2";
 const FILES = [
-  "./", "index.html", "style.css", "manifest.webmanifest",
+  "./", "index.html", "aide.html", "style.css", "manifest.webmanifest",
   "js/materials.js", "js/geometry.js", "js/mesher.js", "js/fem.js", "js/app.js",
   "icons/apple-touch-icon.png", "icons/icon-192.png", "icons/icon-512.png",
 ];
@@ -22,7 +22,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((r) => {
         if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
         return r;

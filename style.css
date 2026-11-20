@@ -26,6 +26,7 @@ body { touch-action: manipulation; }
 #bar .brand { font-weight: 700; letter-spacing: .02em; margin-right: 4px; white-space: nowrap; }
 #bar .spacer { flex: 1; }
 #bar button { background: #2b3947; border-color: #3a4a5b; color: var(--bar-ink); }
+#bar a.btn { display: inline-flex; align-items: center; min-height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid #3a4a5b; background: #2b3947; color: var(--bar-ink); text-decoration: none; }
 #bar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 #bar button.primary { background: #19a05a; border-color: #19a05a; color: #fff; padding: 0 18px; }
 .grp { display: flex; gap: 4px; }
