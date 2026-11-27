@@ -146,6 +146,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
   <div class="tbl"><table>
     <tr><th>Bouton</th><th>Rôle</th><th>Clavier</th></tr>
     <tr><td><span class="chip">Dessiner</span></td><td>Tracer à main levée ; le trait devient segments, arcs ou cercles.</td><td><kbd>D</kbd></td></tr>
+    <tr><td><span class="chip">Grille</span> <span class="chip">Patate</span></td><td>Mode de tracé : accroché à la grille, ou gardé tel quel.</td><td><kbd>G</kbd></td></tr>
     <tr><td><span class="chip">Modifier</span></td><td>Faire glisser un sommet ; toucher une arête pour la sélectionner.</td><td><kbd>S</kbd></td></tr>
     <tr><td><span class="chip">Gomme</span></td><td>Effacer les arêtes que le trait touche.</td><td><kbd>E</kbd></td></tr>
     <tr><td><span class="chip">Matériau</span></td><td>Toucher une zone fermée pour choisir son matériau et ses sources.</td><td><kbd>M</kbd></td></tr>
@@ -198,7 +199,21 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 
 <section id="dessin">
   <h2><span class="n">5</span>Dessiner</h2>
-  <p>Avec <span class="chip">Dessiner</span>, chaque trait est reconnu puis accroché à la grille :</p>
+  <h3>Deux modes de tracé</h3>
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="chip">Grille</span></h3>
+      <p>Le trait est reconnu (droite, arc, cercle, contour à coins) et accroché à la grille de dessin. Pour des pièces cotées : noyaux, entrefers, bobines.</p>
+    </div>
+    <div class="card">
+      <h3><span class="chip">Patate</span></h3>
+      <p>Le trait est gardé tel que vous l'avez tracé, simplement lissé. Ses extrémités s'accrochent aux traits voisins ; s'il revient près de son départ, il est fermé. Pour une forme libre ou une esquisse rapide.</p>
+    </div>
+  </div>
+  <p>Pour changer de mode : touchez <span class="chip">Grille</span> ou <span class="chip">Patate</span> dans la barre, ou appuyez sur <kbd>G</kbd>. Les deux modes peuvent se mélanger dans un même dessin. En mode Patate, <span class="chip">Modifier</span> déplace les sommets librement, sans grille.</p>
+  <div class="warn"><b>Apple Pencil</b> Safari ne transmet pas aux pages web le double-tap ni la pression de l'Apple Pencil : la bascule se fait avec les boutons de la barre. Sur PC, le bouton latéral d'un stylet (Surface, Wacom…) bascule le mode quand on touche l'écran en le tenant appuyé.</div>
+  <h3>Mode Grille : formes reconnues</h3>
+  <p>Chaque trait est reconnu puis accroché à la grille :</p>
   <figure>
     <svg viewBox="0 0 560 150" role="img" aria-label="Exemples de traits reconnus : droite, arc, cercle, contour à coins">
       <defs><pattern id="g" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="var(--grid)" stroke-width="1"/></pattern></defs>

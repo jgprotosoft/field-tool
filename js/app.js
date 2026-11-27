@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const KEY = "fieldtool.project.v1";
 
-  const defaults = () => ({ edges: [], labels: [], customMats: [], grid: 5, gridReal: 10, depth: 20, physics: "mag", airMargin: 1, meshN: 40, bcElec: "V0" });
+  const defaults = () => ({ edges: [], labels: [], customMats: [], grid: 5, gridReal: 10, drawMode: "grid", depth: 20, physics: "mag", airMargin: 1, meshN: 40, bcElec: "V0" });
   let S = defaults();
   let view = { x: 30, y: 30, z: 6 }; // centre (mm) et zoom (px/mm)
   let tool = "draw", sel = -1, mesh = null, result = null, post = null, probe = null, bg = null;
@@ -20,6 +20,8 @@
   const w2s = (x, y) => [W / 2 + (x - view.x) * view.z, H / 2 - (y - view.y) * view.z];
   const s2w = (sx, sy) => ({ x: view.x + (sx - W / 2) / view.z, y: view.y - (sy - H / 2) / view.z });
   const snap = (p) => ({ x: Math.round(p.x / S.grid) * S.grid, y: Math.round(p.y / S.grid) * S.grid });
+  // accrochage selon le mode : grille, ou sommets/arêtes voisins en mode patate
+  const snapPt = (p, skip) => (S.drawMode === "free" ? FT.snapFree(p, S.edges, 12 / view.z, skip) : snap(p));
   const num = (v, d) => { const n = parseFloat(String(v).replace(",", ".")); return isFinite(n) ? n : d; };
   function fmt(v, unit) {
     if (!isFinite(v)) return "–";
@@ -213,7 +215,7 @@
       };
       ctx.lineWidth = 1;
       // grille de dessin (accrochage) : masquée quand elle est trop fine à l'écran
-      if (S.grid * view.z >= 6 && S.grid < sr) lines(S.grid, "rgba(60,80,105,.11)");
+      if (S.drawMode !== "free" && S.grid * view.z >= 6 && S.grid < sr) lines(S.grid, "rgba(60,80,105,.11)");
       lines(sr, "rgba(20,99,214,.34)");
       const nf = (v) => String(+v.toPrecision(10));
       const every = Math.max(1, Math.ceil(46 / (sr * view.z)));
@@ -401,7 +403,7 @@
       const e = S.edges[sel];
       msg = e.type === "arc" ? "Arc : rayon " + mm(FT.arcParams(e).r) + ", longueur " + mm(FT.edgeLength(e)) : "Segment : longueur " + mm(FT.edgeLength(e));
     }
-    $("stMsg").textContent = msg || { draw: "Tracez à main levée : droites, arcs, cercles et contours s'accrochent à la grille.", edit: "Touchez une arête pour la sélectionner, faites glisser un sommet pour le déplacer.", erase: "Passez sur les arêtes à effacer.", mat: "Touchez une zone fermée pour choisir son matériau et ses sources.", probe: "Touchez le résultat pour lire les valeurs locales.", pan: "Faites glisser pour déplacer, molette ou pincement pour zoomer.", calib: "Touchez deux points de l'image dont vous connaissez la distance." }[tool];
+    $("stMsg").textContent = msg || { draw: S.drawMode === "free" ? "Mode Patate : le tracé est gardé tel quel ; ses extrémités s'accrochent aux traits voisins." : "Mode Grille : droites, arcs, cercles et contours s'accrochent à la grille.", edit: "Touchez une arête pour la sélectionner, faites glisser un sommet pour le déplacer.", erase: "Passez sur les arêtes à effacer.", mat: "Touchez une zone fermée pour choisir son matériau et ses sources.", probe: "Touchez le résultat pour lire les valeurs locales.", pan: "Faites glisser pour déplacer, molette ou pincement pour zoomer.", calib: "Touchez deux points de l'image dont vous connaissez la distance." }[tool];
   }
   function setTool(t) {
     tool = t; act = null;
@@ -570,7 +572,11 @@
     e.preventDefault();
     try { cv.setPointerCapture(e.pointerId); } catch (err) { /* pointeur déjà relâché */ }
     const pt = evPt(e);
-    if (e.pointerType === "pen") penSeen = true;
+    if (e.pointerType === "pen") {
+      penSeen = true;
+      // bouton latéral (2) ou gomme (5) d'un stylet : bascule Grille / Patate
+      if (e.button === 2 || e.button === 5) { setDrawMode(S.drawMode === "free" ? "grid" : "free"); return; }
+    }
     if (e.pointerType === "touch") {
       touches.set(e.pointerId, pt);
       if (touches.size === 2) {
@@ -600,7 +606,7 @@
   function eraseAt(pt) { const i = hitEdge(pt, 12); if (i >= 0) act.hit.add(i); }
   cv.addEventListener("pointermove", (e) => {
     const pt = evPt(e);
-    const w = s2w(pt.x, pt.y), sp = snap(w);
+    const w = s2w(pt.x, pt.y), sp = snapPt(w, act && act.type === "drag" ? act.cur : null);
     $("stPos").textContent = "x " + sp.x.toFixed(2) + "  y " + sp.y.toFixed(2) + " mm";
     if (e.pointerType === "touch" && touches.has(e.pointerId)) {
       touches.set(e.pointerId, pt);
@@ -642,9 +648,11 @@
     if (a.type === "calib") { act = { type: "calib", p1: a.p1 }; calibTap(s2w(pt.x, pt.y)); return; }
     act = null;
     if (a.type === "draw") {
-      const ne = FT.recognizeStroke(a.pts, S.grid);
+      const ne = S.drawMode === "free"
+        ? FT.freehandStroke(a.pts, { tol: 1.2 / view.z, snapR: 12 / view.z, edges: S.edges })
+        : FT.recognizeStroke(a.pts, S.grid);
       if (ne.length) { pushUndo(); S.edges.push(...ne); changed(); }
-      else if (a.pts.length > 6) toast("Tracé trop petit par rapport au pas de grille (" + S.grid + " mm).");
+      else if (a.pts.length > 6) toast(S.drawMode === "free" ? "Tracé trop petit." : "Tracé trop petit par rapport au pas de grille (" + S.grid + " mm).");
     } else if (a.type === "erase") {
       if (a.hit.size) { pushUndo(); S.edges = S.edges.filter((_, i) => !a.hit.has(i)); changed(); }
     } else if (a.type === "tap") {
@@ -704,6 +712,13 @@
 
   // ---------- commandes ----------
   document.querySelectorAll("#tools button").forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
+  function setDrawMode(m, quiet) {
+    S.drawMode = m;
+    document.querySelectorAll("#dmode button").forEach((b) => b.classList.toggle("on", b.dataset.dm === m));
+    if (!quiet) { save(); toast(m === "free" ? "Mode Patate : tracé libre" : "Mode Grille : tracé accroché à la grille", 1500); }
+    updateUI(); draw();
+  }
+  document.querySelectorAll("#dmode button").forEach((b) => (b.onclick = () => { setDrawMode(b.dataset.dm); if (tool !== "draw") setTool("draw"); }));
   function setPhysics(p) {
     S.physics = p;
     document.querySelectorAll("#phys button").forEach((b) => b.classList.toggle("on", b.dataset.phys === p));
@@ -761,6 +776,7 @@
   function syncInputs() {
     $("inGrid").value = S.grid; $("inGridReal").value = S.gridReal; $("inDepth").value = S.depth; $("inMargin").value = S.airMargin; $("inMesh").value = S.meshN; $("inBc").value = S.bcElec;
     setPhysics(S.physics);
+    setDrawMode(S.drawMode || "grid", true);
   }
   // ---------- exemples ----------
   function exampleKit() {
@@ -891,6 +907,7 @@
     else if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); $("btnRedo").click(); }
     else if (k === "delete" || k === "backspace") $("btnDel").click();
     else if (k === "enter") solve();
+    else if (k === "g") setDrawMode(S.drawMode === "free" ? "grid" : "free");
     else { const t = { d: "draw", s: "edit", e: "erase", m: "mat", p: "probe" }[k]; if (t) setTool(t); }
   });
 

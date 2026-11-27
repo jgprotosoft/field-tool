@@ -124,6 +124,97 @@
     }
   }
 
+  // Point le plus proche sur une arête (ligne ou arc), avec sa distance.
+  function nearestOnEdge(e, x, y) {
+    if (e.type === "arc") {
+      const a = FT.arcParams(e);
+      let t = Math.atan2(y - a.cy, x - a.cx) - a.a0;
+      const s = a.sweep;
+      // ramener l'angle dans le balayage de l'arc
+      if (s > 0) { while (t < 0) t += 2 * Math.PI; while (t > 2 * Math.PI) t -= 2 * Math.PI; }
+      else { while (t > 0) t -= 2 * Math.PI; while (t < -2 * Math.PI) t += 2 * Math.PI; }
+      if (Math.abs(t) > Math.abs(s)) {
+        const da = Math.hypot(x - e.ax, y - e.ay), db = Math.hypot(x - e.bx, y - e.by);
+        return da < db ? { x: e.ax, y: e.ay, d: da } : { x: e.bx, y: e.by, d: db };
+      }
+      const px = a.cx + a.r * Math.cos(a.a0 + t), py = a.cy + a.r * Math.sin(a.a0 + t);
+      return { x: px, y: py, d: Math.hypot(x - px, y - py) };
+    }
+    const dx = e.bx - e.ax, dy = e.by - e.ay, L2 = dx * dx + dy * dy;
+    const u = L2 ? Math.max(0, Math.min(1, ((x - e.ax) * dx + (y - e.ay) * dy) / L2)) : 0;
+    const px = e.ax + u * dx, py = e.ay + u * dy;
+    return { x: px, y: py, d: Math.hypot(x - px, y - py) };
+  }
+
+  // Accroche un point libre : d'abord aux sommets existants, puis aux arêtes, sinon le laisse en place.
+  FT.snapFree = function (p, edges, r, skip) {
+    let best = null, bd = r;
+    for (const e of edges)
+      for (const v of [[e.ax, e.ay], [e.bx, e.by]]) {
+        if (skip && v[0] === skip.x && v[1] === skip.y) continue;
+        const d = Math.hypot(v[0] - p.x, v[1] - p.y);
+        if (d < bd) { bd = d; best = { x: v[0], y: v[1] }; }
+      }
+    if (best) return best;
+    if (!skip) {
+      for (const e of edges) { const q = nearestOnEdge(e, p.x, p.y); if (q.d < bd) { bd = q.d; best = q; } }
+      if (best) return { x: +best.x.toFixed(4), y: +best.y.toFixed(4) };
+    }
+    return { x: +p.x.toFixed(3), y: +p.y.toFixed(3) };
+  };
+
+  // Mode « patate » : le tracé est gardé tel quel, simplifié en polyligne (tolérance tol en mm).
+  // Les extrémités s'accrochent aux sommets ou arêtes à moins de snapR ; un tracé qui revient
+  // près de son départ est fermé.
+  FT.freehandStroke = function (raw, o) {
+    if (!raw || raw.length < 2) return [];
+    const tol = o.tol, snapR = o.snapR, edges = o.edges || [];
+    const len = pathLength(raw);
+    if (len < 4 * tol) return [];
+    let p = resample(raw, Math.max(tol / 2, len / 2000));
+    // lissage léger du tremblement, extrémités conservées
+    for (let pass = 0; pass < 2; pass++) {
+      const q = p.map((v) => ({ x: v.x, y: v.y }));
+      for (let i = 1; i < p.length - 1; i++) { q[i].x = (p[i - 1].x + 2 * p[i].x + p[i + 1].x) / 4; q[i].y = (p[i - 1].y + 2 * p[i].y + p[i + 1].y) / 4; }
+      p = q;
+    }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const v of p) { x0 = Math.min(x0, v.x); y0 = Math.min(y0, v.y); x1 = Math.max(x1, v.x); y1 = Math.max(y1, v.y); }
+    const diag = Math.hypot(x1 - x0, y1 - y0);
+    const gap = Math.hypot(p[p.length - 1].x - p[0].x, p[p.length - 1].y - p[0].y);
+    const closed = gap < Math.max(snapR, 0.15 * diag) && len > 3 * gap && diag > 3 * tol;
+    if (closed) p[p.length - 1] = { x: p[0].x, y: p[0].y };
+    const idx = [0];
+    rdp(p, 0, p.length - 1, tol, idx);
+    idx.push(p.length - 1);
+    idx.sort((a, b) => a - b);
+    let pts = idx.map((i) => ({ x: p[i].x, y: p[i].y }));
+    if (closed && pts.length < 4) {
+      // contour fermé presque plat : on garde au moins un triangle
+      const k = [0, Math.floor(p.length / 3), Math.floor((2 * p.length) / 3)];
+      pts = k.map((i) => ({ x: p[i].x, y: p[i].y })).concat([{ x: p[0].x, y: p[0].y }]);
+    }
+    // accrochage des extrémités
+    const a = FT.snapFree(pts[0], edges, snapR);
+    pts[0] = a;
+    if (closed) pts[pts.length - 1] = { x: a.x, y: a.y };
+    else pts[pts.length - 1] = FT.snapFree(pts[pts.length - 1], edges, snapR);
+    for (let i = 1; i < pts.length - 1; i++) pts[i] = { x: +pts[i].x.toFixed(3), y: +pts[i].y.toFixed(3) };
+    // suppression des segments minuscules
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const last = out[out.length - 1];
+      if (Math.hypot(pts[i].x - last.x, pts[i].y - last.y) >= tol * 0.5 || i === pts.length - 1) out.push(pts[i]);
+    }
+    if (out.length > 2 && Math.hypot(out[out.length - 1].x - out[out.length - 2].x, out[out.length - 1].y - out[out.length - 2].y) < tol * 0.5) out.splice(out.length - 2, 1);
+    const res = [];
+    for (let i = 0; i + 1 < out.length; i++) {
+      const u = out[i], v = out[i + 1];
+      if (u.x !== v.x || u.y !== v.y) res.push({ type: "line", ax: u.x, ay: u.y, bx: v.x, by: v.y });
+    }
+    return res;
+  };
+
   // raw : [{x,y}] en coordonnées monde ; grid : pas de grille. Retourne une liste d'arêtes accrochées.
   FT.recognizeStroke = function (raw, grid) {
     if (!raw || raw.length < 2) return [];
