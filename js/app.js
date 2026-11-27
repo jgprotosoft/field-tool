@@ -404,7 +404,7 @@
       const e = S.edges[sel];
       msg = e.type === "arc" ? "Arc : rayon " + mm(FT.arcParams(e).r) + ", longueur " + mm(FT.edgeLength(e)) : "Segment : longueur " + mm(FT.edgeLength(e));
     }
-    $("stMsg").textContent = msg || { draw: S.drawMode === "free" ? "Mode Patate : le tracé est gardé tel quel ; ses extrémités s'accrochent aux traits voisins." : "Mode Grille : droites, arcs, cercles et contours s'accrochent à la grille.", edit: "Touchez une arête pour la sélectionner, faites glisser un sommet pour le déplacer.", erase: "Passez sur les arêtes à effacer.", mat: "Touchez une zone fermée pour choisir son matériau et ses sources.", probe: "Touchez le résultat pour lire les valeurs locales.", pan: "Faites glisser pour déplacer, molette ou pincement pour zoomer.", calib: "Touchez deux points de l'image dont vous connaissez la distance." }[tool];
+    $("stMsg").textContent = msg || { draw: S.drawMode === "free" ? "Patate : tracé gardé tel quel. Double-clic sur une zone : matériau." : "Grille : le tracé s'accroche à la grille. Double-clic sur une zone : matériau.", edit: "Touchez une arête pour la sélectionner, faites glisser un sommet pour le déplacer.", erase: "Passez sur les arêtes à effacer.", mat: "Double-cliquez sur une zone pour son matériau ; cliquez-glissez pour revenir au dessin.", probe: "Touchez le résultat pour lire les valeurs locales.", pan: "Faites glisser pour déplacer, molette ou pincement pour zoomer.", calib: "Touchez deux points de l'image dont vous connaissez la distance." }[tool];
   }
   function setTool(t) {
     tool = t; act = null;
@@ -532,6 +532,16 @@
     syncDlg();
     $("dlg").showModal();
   }
+  // clic bref : rien ; double clic (souris, doigt ou stylet) sur une zone : matériau de la palette,
+  // ou réglages de la zone si aucune couleur n'est choisie
+  let lastTap = null;
+  function handleTap(pt) {
+    const now = performance.now();
+    if (lastTap && now - lastTap.t < 450 && Math.hypot(pt.x - lastTap.x, pt.y - lastTap.y) < 24) {
+      lastTap = null;
+      (armed ? paintRegion : openRegion)(s2w(pt.x, pt.y));
+    } else lastTap = { t: now, x: pt.x, y: pt.y };
+  }
   // pose du matériau de la palette ; toucher à nouveau une zone déjà de ce matériau ouvre ses réglages
   function paintRegion(p) {
     if (meshTimer) remesh();
@@ -546,7 +556,7 @@
     else if (lab) lab.mat = armed;
     else S.labels.push({ x: p.x, y: p.y, mat: armed, srcType: "none", srcVal: 0, magAngle: 0, elecType: "none", elecVal: 0 });
     changed(true);
-    toast(m.name + (armed === "air" ? "" : " — touchez à nouveau pour les sources"), 1800);
+    toast(m.name + (armed === "air" ? "" : " — double-cliquez à nouveau pour les sources"), 1800);
   }
   const shortName = (n) => n.replace(/\s*\(.*\)\s*$/, "");
   function renderPalette() {
@@ -561,7 +571,7 @@
       b.onclick = () => {
         armed = armed === m.id ? null : m.id;
         renderPalette();
-        if (armed) { if (tool !== "mat") setTool("mat"); toast("Touchez une zone pour y mettre : " + m.name, 1800); }
+        if (armed) { if (tool !== "mat" && tool !== "draw") setTool("draw"); toast("Double-cliquez sur une zone pour y mettre : " + m.name, 1800); }
       };
       box.appendChild(b);
     };
@@ -589,8 +599,8 @@
     S.customMats.push(m); save();
     $("dNew").close();
     armed = m.id; renderPalette();
-    if (tool !== "mat") setTool("mat");
-    toast("« " + m.name + " » créé : touchez une zone pour l'y mettre.", 2500);
+    if (tool !== "mat" && tool !== "draw") setTool("draw");
+    toast("« " + m.name + " » créé : double-cliquez sur une zone pour l'y mettre.", 2500);
   };
   function syncDlg() {
     $("dMagnet").hidden = !(FT.getMaterial(S, $("dMat").value).Br > 0) || S.physics !== "mag";
@@ -650,11 +660,11 @@
         return;
       }
       if (touches.size > 2) return;
-      if (penSeen && tool !== "mat" && tool !== "probe") { act = { type: "pan", last: pt }; return; }
+      if (penSeen && tool !== "mat" && tool !== "probe") { act = { type: "pan", last: pt, start: pt }; return; }
     }
     if ((e.pointerType === "mouse" && e.button !== 0) || tool === "pan") { act = { type: "pan", last: pt }; return; }
     const w = s2w(pt.x, pt.y);
-    if (tool === "draw") act = { type: "draw", pts: [w] };
+    if (tool === "draw") act = { type: "draw", pts: [w], start: pt, far: 0 };
     else if (tool === "erase") { act = { type: "erase", hit: new Set() }; eraseAt(pt); }
     else if (tool === "mat") act = { type: "tap", start: pt, pts: [w], touch: e.pointerType === "touch" };
     else if (tool === "probe") { act = { type: "probe" }; updateProbe(w); }
@@ -692,6 +702,7 @@
       const ev = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
       if (ev.length > 1) for (const c of ev) { const q = evPt(c); act.pts.push(s2w(q.x, q.y)); }
       else act.pts.push(w);
+      if (act.start) act.far = Math.max(act.far || 0, Math.hypot(pt.x - act.start.x, pt.y - act.start.y));
     } else if (act.type === "tap") {
       act.pts.push(w);
       if (Math.hypot(pt.x - act.start.x, pt.y - act.start.y) > 12) {
@@ -728,7 +739,8 @@
     if (!a) return;
     if (a.type === "calib") { act = { type: "calib", p1: a.p1 }; calibTap(s2w(pt.x, pt.y)); return; }
     act = null;
-    if (a.type === "draw") {
+    if (a.type === "draw" && a.start && a.far < 8 && Math.hypot(pt.x - a.start.x, pt.y - a.start.y) < 8) handleTap(pt);
+    else if (a.type === "draw") {
       const ne = S.drawMode === "free"
         ? FT.freehandStroke(a.pts, { tol: 1.2 / view.z, snapR: 12 / view.z, edges: S.edges })
         : FT.recognizeStroke(a.pts, S.grid);
@@ -738,12 +750,15 @@
     } else if (a.type === "erase") {
       if (a.hit.size) { pushUndo(); S.edges = S.edges.filter((_, i) => !a.hit.has(i)); changed(); }
     } else if (a.type === "tap") {
-      if (Math.hypot(pt.x - a.start.x, pt.y - a.start.y) < 12) (armed ? paintRegion : openRegion)(s2w(pt.x, pt.y));
+      if (Math.hypot(pt.x - a.start.x, pt.y - a.start.y) < 12) handleTap(pt);
     } else if (a.type === "drag" && a.moved) {
       undo.push(a.before); redo.length = 0;
       S.edges = S.edges.filter((ed) => ed.ax !== ed.bx || ed.ay !== ed.by);
       changed();
-    } else if (a.type === "pan") save();
+    } else if (a.type === "pan") {
+      if (a.start && Math.hypot(pt.x - a.start.x, pt.y - a.start.y) < 8) handleTap(pt);
+      save();
+    }
     draw();
   }
   cv.addEventListener("pointerup", endPointer);
