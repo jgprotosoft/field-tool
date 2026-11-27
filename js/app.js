@@ -9,6 +9,7 @@
   let S = defaults();
   let view = { x: 30, y: 30, z: 6 }; // centre (mm) et zoom (px/mm)
   let tool = "draw", sel = -1, mesh = null, result = null, post = null, probe = null, bg = null;
+  let armed = null; // matériau choisi dans la palette (pose directe avec l'outil Matériau)
   let act = null, penSeen = false, meshTimer = 0, meshError = "";
   const disp = { qty: "B", lines: true, arrows: false, mesh: false, dims: true, max: null };
   const undo = [], redo = [];
@@ -531,6 +532,66 @@
     syncDlg();
     $("dlg").showModal();
   }
+  // pose du matériau de la palette ; toucher à nouveau une zone déjà de ce matériau ouvre ses réglages
+  function paintRegion(p) {
+    if (meshTimer) remesh();
+    if (!mesh) { toast("Dessinez d'abord un contour fermé."); return; }
+    const t = mesh.locator.find(p.x, p.y);
+    if (t < 0) { toast("Point hors du domaine."); return; }
+    const lab = mesh.regLabel[mesh.reg[t]], m = FT.getMaterial(S, armed);
+    if (lab && lab.mat === armed) { openRegion(p); return; }
+    if (armed === "air" && !lab) return;
+    pushUndo();
+    if (armed === "air") S.labels = S.labels.filter((l) => l !== lab);
+    else if (lab) lab.mat = armed;
+    else S.labels.push({ x: p.x, y: p.y, mat: armed, srcType: "none", srcVal: 0, magAngle: 0, elecType: "none", elecVal: 0 });
+    changed(true);
+    toast(m.name + (armed === "air" ? "" : " — touchez à nouveau pour les sources"), 1800);
+  }
+  const shortName = (n) => n.replace(/\s*\(.*\)\s*$/, "");
+  function renderPalette() {
+    const box = $("palList");
+    box.innerHTML = "";
+    const add = (m) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = armed === m.id ? "on" : "";
+      b.title = m.name + " — µr " + m.mur + (m.Js ? ", Js " + m.Js + " T" : "") + (m.Br ? ", Br " + m.Br + " T" : "") + ", εr " + m.epsr + (m.cond ? ", conducteur" : "");
+      b.innerHTML = '<span class="dot"></span><span></span>';
+      b.firstChild.style.background = m.color; b.lastChild.textContent = shortName(m.name);
+      b.onclick = () => {
+        armed = armed === m.id ? null : m.id;
+        renderPalette();
+        if (armed) { if (tool !== "mat") setTool("mat"); toast("Touchez une zone pour y mettre : " + m.name, 1800); }
+      };
+      box.appendChild(b);
+    };
+    FT.defaultMaterials.forEach(add);
+    if (S.customMats.length) { const sp = document.createElement("div"); sp.className = "sep"; box.appendChild(sp); S.customMats.forEach(add); }
+  }
+  function setPalette(show) {
+    $("palette").classList.toggle("hidden", !show); $("palShow").hidden = show;
+    try { localStorage.setItem("fieldtool.palette", show ? "1" : "0"); } catch (e) { /* stockage indisponible */ }
+    resize();
+  }
+  $("palHide").onclick = () => setPalette(false);
+  $("palShow").onclick = () => setPalette(true);
+  $("palAdd").onclick = () => {
+    $("nName").value = "";
+    $("nColor").value = ["#c7b8ea", "#a8d5ba", "#f2c6a0", "#9fc5e8", "#e6b8af", "#d5a6bd"][S.customMats.length % 6];
+    $("dNew").showModal();
+  };
+  $("nCancel").onclick = () => $("dNew").close();
+  $("nOk").onclick = () => {
+    const m = { id: "c" + Date.now().toString(36), name: $("nName").value.trim() || "Matériau " + (S.customMats.length + 1), color: $("nColor").value,
+      mur: Math.max(1e-3, num($("nMur").value, 1)), Js: Math.max(0, num($("nJs").value, 0)), Br: Math.max(0, num($("nBr").value, 0)),
+      epsr: Math.max(1e-3, num($("nEps").value, 1)), cond: $("nCond").checked };
+    if (m.Br > 0) m.Js = 0;
+    S.customMats.push(m); save();
+    $("dNew").close();
+    armed = m.id; renderPalette();
+    if (tool !== "mat") setTool("mat");
+    toast("« " + m.name + " » créé : touchez une zone pour l'y mettre.", 2500);
+  };
   function syncDlg() {
     $("dMagnet").hidden = !(FT.getMaterial(S, $("dMat").value).Br > 0) || S.physics !== "mag";
     $("dFsMag").hidden = S.physics !== "mag";
@@ -669,7 +730,7 @@
     } else if (a.type === "erase") {
       if (a.hit.size) { pushUndo(); S.edges = S.edges.filter((_, i) => !a.hit.has(i)); changed(); }
     } else if (a.type === "tap") {
-      if (Math.hypot(pt.x - a.start.x, pt.y - a.start.y) < 12) openRegion(s2w(pt.x, pt.y));
+      if (Math.hypot(pt.x - a.start.x, pt.y - a.start.y) < 12) (armed ? paintRegion : openRegion)(s2w(pt.x, pt.y));
     } else if (a.type === "drag" && a.moved) {
       undo.push(a.before); redo.length = 0;
       S.edges = S.edges.filter((ed) => ed.ax !== ed.bx || ed.ay !== ed.by);
@@ -775,7 +836,7 @@
       mur: Math.max(1e-3, num($("cMur").value, 1)), Js: Math.max(0, num($("cJs").value, 0)), Br: Math.max(0, num($("cBr").value, 0)), epsr: Math.max(1e-3, num($("cEps").value, 1)), cond: $("cCond").checked };
     if (m.Br > 0) m.Js = 0;
     S.customMats.push(m);
-    fillMatSelect(m.id); syncDlg();
+    fillMatSelect(m.id); syncDlg(); renderPalette();
     $("dCustom").open = false;
   };
 
@@ -790,6 +851,8 @@
     $("inGrid").value = S.grid; $("inGridReal").value = S.gridReal; $("inDepth").value = S.depth; $("inMargin").value = S.airMargin; $("inMesh").value = S.meshN; $("inBc").value = S.bcElec;
     setPhysics(S.physics);
     setDrawMode(S.drawMode || "grid", true);
+    if (armed && !FT.defaultMaterials.concat(S.customMats).some((m) => m.id === armed)) armed = null;
+    renderPalette();
   }
   // ---------- exemples ----------
   function exampleKit() {
@@ -932,6 +995,9 @@
   try { stored = JSON.parse(localStorage.getItem(KEY)); } catch (e) { stored = null; }
   if (stored && stored.S && Array.isArray(stored.S.edges)) loadProject(stored); else { syncInputs(); updateUI(); }
   if (window.innerWidth < 820) $("panel").classList.add("hidden");
+  let palPref = null;
+  try { palPref = localStorage.getItem("fieldtool.palette"); } catch (e) { palPref = null; }
+  setPalette(palPref ? palPref === "1" : window.innerWidth >= 600);
   resize();
   window.FTapp = { get S() { return S; }, get mesh() { return mesh; }, get result() { return result; }, loadProject, example, examples: EXAMPLES, solve, fit, setTool };
 })();

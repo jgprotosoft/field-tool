@@ -50,11 +50,17 @@
 </header>
 
 <main>
+  <aside id="palette" aria-label="Palette de matériaux">
+    <div class="palHead"><span>Matériaux</span><button id="palHide" title="Masquer la palette">‹</button></div>
+    <div id="palList"></div>
+    <button id="palAdd" title="Créer un matériau">+</button>
+  </aside>
   <div id="wrap">
     <canvas id="gl"></canvas>
     <canvas id="cv"></canvas>
     <div id="readout" hidden></div>
     <div id="toast" hidden></div>
+    <button id="palShow" title="Afficher la palette de matériaux" hidden>Matériaux ›</button>
   </div>
   <aside id="panel">
     <section>
@@ -137,6 +143,23 @@
       <button type="button" id="dReset">Remettre en air</button>
       <button type="button" id="dCancel">Annuler</button>
       <button type="button" id="dOk" class="primary">Valider</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dNew">
+  <form method="dialog">
+    <h2>Nouveau matériau</h2>
+    <label>Nom <input id="nName" type="text" placeholder="Mon matériau"></label>
+    <label>Couleur <input id="nColor" type="color" value="#c7b8ea"></label>
+    <label>µr (perméabilité relative) <input id="nMur" type="number" step="any" value="1000" inputmode="decimal"></label>
+    <label>Js saturation (T, 0 = linéaire) <input id="nJs" type="number" step="any" value="0" inputmode="decimal"></label>
+    <label>Br aimant (T, 0 = aucun) <input id="nBr" type="number" step="any" value="0" inputmode="decimal"></label>
+    <label>εr (permittivité relative) <input id="nEps" type="number" step="any" value="1" inputmode="decimal"></label>
+    <label class="chk"><input id="nCond" type="checkbox"> Conducteur électrique</label>
+    <div class="btns end">
+      <button type="button" id="nCancel">Annuler</button>
+      <button type="button" id="nOk" class="primary">Créer</button>
     </div>
   </form>
 </dialog>
