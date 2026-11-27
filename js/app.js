@@ -656,7 +656,7 @@
     const w = s2w(pt.x, pt.y);
     if (tool === "draw") act = { type: "draw", pts: [w] };
     else if (tool === "erase") { act = { type: "erase", hit: new Set() }; eraseAt(pt); }
-    else if (tool === "mat") act = { type: "tap", start: pt };
+    else if (tool === "mat") act = { type: "tap", start: pt, pts: [w], touch: e.pointerType === "touch" };
     else if (tool === "probe") { act = { type: "probe" }; updateProbe(w); }
     else if (tool === "calib") act = { type: "calib", p1: act && act.p1, start: pt };
     else if (tool === "edit") {
@@ -692,6 +692,13 @@
       const ev = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
       if (ev.length > 1) for (const c of ev) { const q = evPt(c); act.pts.push(s2w(q.x, q.y)); }
       else act.pts.push(w);
+    } else if (act.type === "tap") {
+      act.pts.push(w);
+      if (Math.hypot(pt.x - act.start.x, pt.y - act.start.y) > 12) {
+        // un doigt après le stylet déplace la vue ; un trait de stylet ou de souris redevient un tracé
+        if (act.touch && penSeen) act = { type: "pan", last: pt };
+        else { act.type = "draw"; act.fromMat = true; }
+      }
     } else if (act.type === "erase") eraseAt(pt);
     else if (act.type === "probe") updateProbe(w);
     else if (act.type === "drag") {
@@ -726,6 +733,7 @@
         ? FT.freehandStroke(a.pts, { tol: 1.2 / view.z, snapR: 12 / view.z, edges: S.edges })
         : FT.recognizeStroke(a.pts, S.grid);
       if (ne.length) { pushUndo(); S.edges.push(...ne); changed(); }
+      if (a.fromMat) { setTool("draw"); toast("Retour au dessin", 1200); }
       else if (a.pts.length > 6) toast(S.drawMode === "free" ? "Tracé trop petit." : "Tracé trop petit par rapport au pas de grille (" + S.grid + " mm).");
     } else if (a.type === "erase") {
       if (a.hit.size) { pushUndo(); S.edges = S.edges.filter((_, i) => !a.hit.has(i)); changed(); }
