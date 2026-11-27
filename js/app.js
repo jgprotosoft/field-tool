@@ -583,6 +583,8 @@
         act = null;
         const [a, b] = [...touches.values()];
         pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+        // mémorisé pour reconnaître un tap à deux doigts (bascule Grille / Patate)
+        pinch.tap = { t0: performance.now(), d0: pinch.d, cx0: pinch.cx, cy0: pinch.cy, z0: view.z, x0: view.x, y0: view.y, ok: true };
         draw();
         return;
       }
@@ -616,7 +618,9 @@
         const anchor = s2w(pinch.cx, pinch.cy);
         view.z = Math.min(4000, Math.max(0.02, (view.z * d) / (pinch.d || d)));
         view.x = anchor.x - (cx - W / 2) / view.z; view.y = anchor.y + (cy - H / 2) / view.z;
-        pinch = { d, cx, cy };
+        const tap = pinch.tap;
+        if (tap && (Math.abs(d - tap.d0) > 14 || Math.hypot(cx - tap.cx0, cy - tap.cy0) > 14)) tap.ok = false;
+        pinch = { d, cx, cy, tap };
         draw();
         return;
       }
@@ -642,7 +646,16 @@
   });
   function endPointer(e) {
     const pt = evPt(e);
-    if (e.pointerType === "touch") { touches.delete(e.pointerId); if (touches.size < 2 && pinch) { pinch = null; save(); return; } }
+    if (e.pointerType === "touch") { touches.delete(e.pointerId); if (touches.size < 2 && pinch) {
+        const tap = pinch.tap;
+        pinch = null;
+        if (tap && tap.ok && performance.now() - tap.t0 < 350) {
+          // tap à deux doigts : on annule le petit mouvement de vue éventuel et on bascule le mode
+          view.z = tap.z0; view.x = tap.x0; view.y = tap.y0;
+          setDrawMode(S.drawMode === "free" ? "grid" : "free");
+        }
+        save(); return;
+      } }
     const a = act;
     if (!a) return;
     if (a.type === "calib") { act = { type: "calib", p1: a.p1 }; calibTap(s2w(pt.x, pt.y)); return; }
