@@ -5,13 +5,13 @@
   const $ = (id) => document.getElementById(id);
   const KEY = "fieldtool.project.v1";
 
-  const defaults = () => ({ edges: [], labels: [], customMats: [], grid: 5, gridReal: 10, drawMode: "grid", depth: 20, physics: "mag", airMargin: 1, meshN: 40, bcElec: "V0" });
+  const defaults = () => ({ edges: [], labels: [], customMats: [], grid: 5, gridReal: 10, drawMode: "grid", depth: 20, physics: "mag", ac: false, freq: 50, airMargin: 1, meshN: 40, bcElec: "V0" });
   let S = defaults();
   let view = { x: 30, y: 30, z: 6 }; // centre (mm) et zoom (px/mm)
   let tool = "draw", sel = -1, mesh = null, result = null, post = null, probe = null, bg = null;
   let armed = null; // matériau choisi dans la palette (pose directe avec l'outil Matériau)
   let act = null, penSeen = false, meshTimer = 0, meshError = "";
-  const disp = { qty: "B", lines: true, arrows: false, mesh: false, dims: true, max: null };
+  const disp = { qty: "B", lines: true, arrows: false, mesh: false, dims: true, max: null, phase: 0, anim: false };
   const undo = [], redo = [];
 
   const wrap = $("wrap"), glc = $("gl"), cv = $("cv"), ctx = cv.getContext("2d");
@@ -33,6 +33,9 @@
     return v.toExponential(3) + " " + unit;
   }
   const mm = (v) => +v.toFixed(3) + " mm";
+  // phaseur : amplitude crête et phase
+  const pha = (re, im, unit) => fmt(Math.hypot(re, im), unit) + (Math.hypot(re, im) > 0 ? "  ∠" + Math.round((Math.atan2(im, re) * 180) / Math.PI) + "°" : "");
+  const fmtHz = (f) => fmt(f, "Hz");
   let toastTimer = 0;
   function toast(msg, ms) {
     const t = $("toast");
@@ -127,17 +130,31 @@
 
   // ---------- post-traitement pour l'affichage ----------
   const QTY = {
-    mag: [["B", "|B| – induction (T)"], ["H", "|H| – champ (A/m)"]],
+    mag: [["B", "|B| – induction (T)"], ["H", "|H| – champ (A/m)"], ["J", "|J| – densité de courant (A/mm²)"]],
+    magAC: [["B", "|B| crête – induction (T)"], ["H", "|H| crête – champ (A/m)"], ["J", "|J| crête – densité de courant (A/mm²)"], ["P", "Pertes Joule (W/cm³)"]],
     elec: [["V", "V – potentiel (V)"], ["E", "|E| – champ (V/mm)"]],
   };
+  const qtyKey = () => (S.physics === "mag" ? (S.ac ? "magAC" : "mag") : "elec");
   function buildPost() {
     post = null;
     if (!result || !mesh) return;
     const nt = mesh.tri.length / 3, r = result;
-    let val, lo = 0, hi, unit, title, elemVals;
-    if (r.type === "mag") {
+    let val, lo = 0, hi, unit, title, elemVals, useMax = false;
+    if (r.type === "mag" && (disp.qty === "J" || disp.qty === "P")) {
+      // densité de courant et pertes : valeurs aux sommets (effet de peau net), échelle sur le maximum
+      val = new Float32Array(3 * nt);
+      if (disp.qty === "P") {
+        if (r.pc) for (let k = 0; k < 3 * nt; k++) val[k] = r.pc[k] * 1e-6;
+        unit = "W/cm³"; title = "Pertes";
+      } else {
+        if (r.Jc) for (let k = 0; k < 3 * nt; k++) val[k] = r.Jc[k] * 1e-6;
+        else for (let e = 0; e < nt; e++) { const j = Math.abs(r.props[mesh.reg[e]].J) * 1e-6; val[3 * e] = val[3 * e + 1] = val[3 * e + 2] = j; }
+        unit = "A/mm²"; title = r.harmonic ? "|J| crête" : "|J|";
+      }
+      useMax = true;
+    } else if (r.type === "mag") {
       elemVals = disp.qty === "H" ? r.Hm : r.Bm;
-      unit = disp.qty === "H" ? "A/m" : "T"; title = disp.qty === "H" ? "|H|" : "|B|";
+      unit = disp.qty === "H" ? "A/m" : "T"; title = (disp.qty === "H" ? "|H|" : "|B|") + (r.harmonic ? " crête" : "");
       val = FT.smoothPerRegion(mesh, elemVals, r.area);
     } else if (disp.qty === "E") {
       elemVals = Float64Array.from(r.Em, (v) => v * 1e-3);
@@ -154,14 +171,51 @@
       hi = s[Math.min(s.length - 1, Math.floor(s.length * 0.995))] || 1;
       if (disp.max > 0) hi = disp.max;
     }
+    if (useMax) {
+      hi = 0;
+      for (let k = 0; k < val.length; k++) if (val[k] > hi) hi = val[k];
+      if (disp.max > 0) hi = disp.max;
+    }
     if (!(hi > lo)) hi = lo + 1;
-    const vx = r.type === "mag" ? r.Bx : r.Ex, vy = r.type === "mag" ? r.By : r.Ey;
-    post = {
-      val, lo, hi, unit, title,
-      sx: FT.smoothPerRegion(mesh, vx, r.area), sy: FT.smoothPerRegion(mesh, vy, r.area),
-      lines: FT.contours(mesh, r.type === "mag" ? r.A : r.V, 26),
-      stats: {},
+    post = { val, lo, hi, unit, title, stats: {} };
+    if (r.harmonic) {
+      // parties réelle et imaginaire lissées ; lignes et flèches à l'instant ωt choisi
+      const sm = (v) => FT.smoothPerRegion(mesh, v, r.area);
+      post.sxR = sm(r.BxR); post.sxI = sm(r.BxI); post.syR = sm(r.ByR); post.syI = sm(r.ByI);
+      let amax = 0, ref = 0;
+      for (let k = 0; k < r.A.length; k++) amax = Math.max(amax, Math.hypot(r.A[k], r.Ai[k]));
+      for (let k = 0; k < post.sxR.length; k += 7) ref = Math.max(ref, FT.peakB(post.sxR[k], post.sxI[k], post.syR[k], post.syI[k]));
+      post.amax = amax; post.refV = ref;
+      applyInstant();
+    } else {
+      const vx = r.type === "mag" ? r.Bx : r.Ex, vy = r.type === "mag" ? r.By : r.Ey;
+      post.sx = FT.smoothPerRegion(mesh, vx, r.area); post.sy = FT.smoothPerRegion(mesh, vy, r.area);
+      post.lines = FT.contours(mesh, r.type === "mag" ? r.A : r.V, 26);
+    }
+  }
+  // valeurs instantanées Re(X·e^{jωt}) pour les lignes de flux et les flèches
+  function applyInstant() {
+    if (!post || !result || !result.harmonic) return;
+    const r = result, th = (disp.phase * Math.PI) / 180, c = Math.cos(th), sn = Math.sin(th), n = r.A.length, m = post.sxR.length;
+    const u = post.u || (post.u = new Float64Array(n));
+    for (let k = 0; k < n; k++) u[k] = r.A[k] * c - r.Ai[k] * sn;
+    post.lines = FT.contours(mesh, u, 52, -post.amax, post.amax);
+    const sx = post.sx || (post.sx = new Float32Array(m)), sy = post.sy || (post.sy = new Float32Array(m));
+    for (let k = 0; k < m; k++) { sx[k] = post.sxR[k] * c - post.sxI[k] * sn; sy[k] = post.syR[k] * c - post.syI[k] * sn; }
+  }
+  let animT = 0;
+  function startAnim() {
+    if (animT) return;
+    let last = performance.now();
+    const step = (ts) => {
+      if (!disp.anim || !result || !result.harmonic || !post) { animT = 0; return; }
+      disp.phase = (disp.phase + Math.max(0, ts - last) * 0.18) % 360; // un cycle en 2 s
+      last = ts;
+      $("inPhase").value = Math.round(disp.phase); $("phaseVal").textContent = Math.round(disp.phase) + "°";
+      applyInstant(); render();
+      animT = requestAnimationFrame(step);
     };
+    animT = requestAnimationFrame(step);
   }
 
   // ---------- dessin ----------
@@ -294,8 +348,10 @@
       const q = w2s(l.x, l.y), m = FT.getMaterial(S, l.mat);
       let txt = m.name.split(" (")[0];
       if (S.physics === "mag") {
-        if (l.srcType === "NI") txt += "  " + l.srcVal + " A·t";
-        if (l.srcType === "J") txt += "  " + l.srcVal + " A/mm²";
+        const ph = S.ac && +l.phase ? " ∠" + l.phase + "°" : "";
+        if (l.srcType === "NI") txt += "  " + l.srcVal + " A·t" + ph;
+        if (l.srcType === "J") txt += "  " + l.srcVal + " A/mm²" + ph;
+        if (l.srcType === "I") txt += "  " + l.srcVal + " A" + ph;
       } else {
         if (l.elecType === "V") txt += "  " + l.elecVal + " V";
         if (l.elecType === "rho") txt += "  ρ=" + l.elecVal;
@@ -361,11 +417,13 @@
   }
   function drawColorBar() {
     const h = Math.min(220, H - 90), x = W - 78, y = 34, c = [0, 0, 0, 0];
-    ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fillRect(x - 10, y - 26, 82, h + 40);
+    ctx.font = "600 12px system-ui, sans-serif";
+    const ttl = post.title + " (" + post.unit + ")", left = Math.min(x - 10, W - 18 - ctx.measureText(ttl).width);
+    ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fillRect(left, y - 26, W - 6 - left, h + 40);
     for (let i = 0; i < h; i++) { cmap(1 - i / (h - 1), c, 0); ctx.fillStyle = "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")"; ctx.fillRect(x, y + i, 14, 1.5); }
     ctx.fillStyle = "#1c2733"; ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
     for (let k = 0; k <= 4; k++) { const v = post.hi - ((post.hi - post.lo) * k) / 4; ctx.fillText(+v.toPrecision(3) + "", x + 19, y + (h * k) / 4); }
-    ctx.font = "600 12px system-ui, sans-serif"; ctx.fillText(post.title + " (" + post.unit + ")", x - 4, y - 13);
+    ctx.font = "600 12px system-ui, sans-serif"; ctx.textAlign = "right"; ctx.fillText(ttl, W - 12, y - 13); ctx.textAlign = "left";
   }
 
   // ---------- modèle : modifications, annulation, sauvegarde ----------
@@ -396,7 +454,9 @@
     $("btnUndo").disabled = !undo.length; $("btnRedo").disabled = !redo.length;
     $("btnCalib").disabled = $("btnImgDel").disabled = !bg;
     $("meshInfo").textContent = meshError ? "Erreur de maillage : " + meshError
-      : mesh ? mesh.x.length + " nœuds, " + mesh.tri.length / 3 + " éléments, " + mesh.nReg + " zones" + (mesh.warnings.length ? " — " + mesh.warnings.join(" ; ") : "")
+      : mesh ? mesh.x.length + " nœuds, " + mesh.tri.length / 3 + " éléments, " + mesh.nReg + " zones"
+        + (mesh.skin && mesh.skin.dMin < Infinity ? " — épaisseur de peau δ = " + mm(mesh.skin.dMin) : "")
+        + (mesh.warnings.length ? " — " + mesh.warnings.join(" ; ") : "")
       : "Aucun maillage";
     if (!result) $("results").textContent = "Dessinez un circuit, affectez les matériaux (outil Matériau) puis lancez le calcul.";
     let msg = "";
@@ -437,12 +497,15 @@
         result = FT.solve(S, mesh);
         result.props = FT.regionProps(S, mesh, S.physics);
         buildPost();
-        let ref = 0;
-        const vx = post.sx, vy = post.sy;
-        for (let k = 0; k < vx.length; k += 7) ref = Math.max(ref, Math.hypot(vx[k], vy[k]));
-        post.refV = ref;
+        if (post.refV == null) {
+          let ref = 0;
+          const vx = post.sx, vy = post.sy;
+          for (let k = 0; k < vx.length; k += 7) ref = Math.max(ref, Math.hypot(vx[k], vy[k]));
+          post.refV = ref;
+        }
         uploadColors();
         showResults();
+        if (disp.anim) startAnim();
         $("toast").hidden = true;
       } catch (e) {
         console.error(e); result = null; post = null;
@@ -454,7 +517,8 @@
   function showResults() {
     const r = result, d = S.depth * 1e-3, out = [];
     out.push("<b>Maillage</b> : " + mesh.x.length + " nœuds, " + mesh.tri.length / 3 + " éléments");
-    if (r.type === "mag") {
+    if (r.type === "mag" && r.harmonic) showResultsAC(r, d, out);
+    else if (r.type === "mag") {
       out.push("<b>Solveur</b> : " + (r.nonlinear ? "non linéaire, " + r.iters + " itérations de Newton" : "linéaire") + ", " + r.ms + " ms");
       if (!r.converged) out.push('<span class="warn">Convergence incomplète (résidu ' + r.relRes.toExponential(1) + ")</span>");
       let pos = 0, neg = 0, hasPM = false;
@@ -483,6 +547,64 @@
     out.push("Outil <b>Sonde</b> : touchez une zone pour ses valeurs locales, sa moyenne et la force qu'elle subit.");
     $("results").innerHTML = out.join("\n");
   }
+  function showResultsAC(r, d, out) {
+    const P = result.props, w = r.omega;
+    out.push("<b>Régime</b> : sinusoïdal, " + fmtHz(S.freq) + " — valeurs crête");
+    out.push("<b>Solveur</b> : " + (r.nonlinear ? "non linéaire, " + r.iters + " itérations de Newton" : "linéaire") + ", " + r.ms + " ms");
+    if (!r.converged) out.push('<span class="warn">Convergence incomplète (résidu ' + r.relRes.toExponential(1) + ")</span>");
+    if (P.some((p) => p.brx || p.bry)) out.push('<span class="warn">Aimants ignorés : leur champ continu ne fait pas partie du régime sinusoïdal.</span>');
+    if (mesh.skin && mesh.skin.dMin < Infinity) {
+      out.push("<b>Épaisseur de peau δ min.</b> : " + mm(mesh.skin.dMin));
+      if (mesh.skin.dMin < 2 * mesh.skin.hmin) out.push('<span class="warn">δ plus fine que la maille minimale : augmentez la finesse du maillage pour des pertes précises.</span>');
+    }
+    // sources : bobines (A·t) et conducteurs massifs alimentés (A)
+    const coils = [], solids = [];
+    P.forEach((p, k) => {
+      if (!p.solid && (p.Jr || p.Ji)) coils.push({ k, re: p.Jr * mesh.regArea[k], im: p.Ji * mesh.regArea[k] });
+      if (p.solid && (p.Ir || p.Ii)) solids.push({ k, re: p.Ir, im: p.Ii });
+    });
+    if (!coils.length && !solids.length) out.push('<span class="warn">Aucune source : ajoutez des ampères-tours ou un courant avec l\'outil Matériau.</span>');
+    out.push("<b>|B| crête max affiché</b> : " + (post.unit === "T" ? fmt(post.hi, "T") : "–"));
+    out.push("<b>Énergie magnétique moyenne</b> : " + fmt(r.energy * d, "J") + " (profondeur " + S.depth + " mm)");
+    // pertes par zone
+    const loss = [];
+    for (let k = 0; k < mesh.nReg; k++) if (r.regP[k] > 0) loss.push([k, r.regP[k] * d]);
+    loss.sort((a, b) => b[1] - a[1]);
+    if (loss.length) {
+      out.push("<b>Pertes Joule (courants induits et conducteurs massifs)</b> : " + fmt(r.power * d, "W"));
+      for (const [k, v] of loss.slice(0, 6)) { const l = mesh.regLabel[k]; out.push("   · " + FT.getMaterial(S, l ? l.mat : "air").name.split(" (")[0] + " : " + fmt(v, "W")); }
+    }
+    // bobines en série (même phase au signe près) : A_L et résistance ramenée par spire²
+    if (coils.length) {
+      const ref = coils.reduce((a, b) => (Math.hypot(b.re, b.im) > Math.hypot(a.re, a.im) ? b : a)), rm = Math.hypot(ref.re, ref.im);
+      let pos = 0, neg = 0, colin = true;
+      for (const c of coils) {
+        const pr = (c.re * ref.re + c.im * ref.im) / rm, pq = (c.im * ref.re - c.re * ref.im) / rm;
+        if (Math.abs(pq) > 1e-6 * Math.hypot(c.re, c.im)) colin = false;
+        if (pr > 0) pos += pr; else neg -= pr;
+      }
+      const NI = Math.max(pos, neg);
+      out.push("<b>Ampères-tours crête</b> : " + fmt(NI, "A·t"));
+      if (colin && NI > 0 && !solids.length) {
+        out.push("<b>A<sub>L</sub> = L/N²</b> : " + fmt((r.lamR * d) / (NI * NI), "H/spire²") + (r.nonlinear ? " (apparente)" : ""));
+        out.push("<b>R/N² (pertes induites ramenées)</b> : " + fmt((-w * r.lamI * d) / (NI * NI), "Ω/spire²"));
+        out.push("   (Z = N²·(R/N² + jω·A<sub>L</sub>), hors résistance du fil)");
+      } else if (!colin) out.push("Bobines déphasées : pas d'inductance unique, voir les pertes et la sonde.");
+    }
+    // conducteurs massifs alimentés : résistance en alternatif et rapport à la résistance continue
+    let zr = 0, zi = 0, sr = 0, si = 0;
+    for (const c of solids) {
+      const p = P[c.k], im2 = c.re * c.re + c.im * c.im, l = mesh.regLabel[c.k];
+      const Rac = (2 * r.regP[c.k] * d) / im2, Rdc = d / (p.sigma * mesh.regArea[c.k]);
+      out.push("<b>" + FT.getMaterial(S, l.mat).name.split(" (")[0] + " " + l.srcVal + " A</b> : R<sub>ac</sub> = " + fmt(Rac, "Ω") + ", R<sub>ac</sub>/R<sub>dc</sub> = " + (Rac / Rdc).toFixed(3));
+      // Z_k = g_k·d / I_k
+      const gr = r.gR[c.k] * d, gi = r.gI[c.k] * d;
+      zr += (gr * c.re + gi * c.im) / im2; zi += (gi * c.re - gr * c.im) / im2;
+      sr += c.re; si += c.im;
+    }
+    if (solids.length > 1 && !coils.length && Math.hypot(sr, si) < 1e-6 * solids.reduce((a, c) => a + Math.hypot(c.re, c.im), 0))
+      out.push("<b>Boucle (conducteurs en série)</b> : R = " + fmt(zr, "Ω") + ", L = " + fmt(zi / w, "H"));
+  }
   function updateProbe(p) {
     if (!result || !post) { toast("Lancez d'abord le calcul."); return; }
     const f = fieldAt(p.x, p.y);
@@ -490,19 +612,35 @@
     probe = p;
     const r = result, t = f.t, reg = mesh.reg[t], lab = mesh.regLabel[reg];
     const L = ["x = " + p.x.toFixed(2) + " mm   y = " + p.y.toFixed(2) + " mm"];
-    if (r.type === "mag") {
-      const A = f.bary[0] * r.A[mesh.tri[3 * t]] + f.bary[1] * r.A[mesh.tri[3 * t + 1]] + f.bary[2] * r.A[mesh.tri[3 * t + 2]];
+    const ipn = (s) => f.bary[0] * s[mesh.tri[3 * t]] + f.bary[1] * s[mesh.tri[3 * t + 1]] + f.bary[2] * s[mesh.tri[3 * t + 2]];
+    const ipc = (s) => f.bary[0] * s[3 * t] + f.bary[1] * s[3 * t + 1] + f.bary[2] * s[3 * t + 2];
+    if (r.type === "mag" && r.harmonic) {
+      const bxr = ipc(post.sxR), bxi = ipc(post.sxI), byr = ipc(post.syR), byi = ipc(post.syI), ar = ipn(r.A), ai = ipn(r.Ai);
+      const pp = r.props[reg];
+      L.push("|B| crête = " + fmt(FT.peakB(bxr, bxi, byr, byi), "T"), "Bx = " + pha(bxr, bxi, "T"), "By = " + pha(byr, byi, "T"),
+        "|H| crête = " + fmt(r.Hm[t], "A/m") + "   µr = " + +(1 / (r.nu[t] * FT.MU0)).toPrecision(4));
+      let jr = pp.Jr || 0, ji = pp.Ji || 0;
+      if (pp.solid) { jr = pp.sigma * (r.omega * ai + r.gR[reg]); ji = pp.sigma * (-r.omega * ar + r.gI[reg]); }
+      if (jr || ji) L.push("J = " + pha(jr * 1e-6, ji * 1e-6, "A/mm²"));
+      if (pp.solid) L.push("Pertes = " + fmt(((jr * jr + ji * ji) / (2 * pp.sigma)) * 1e-6, "W/cm³"));
+      L.push("A = " + pha(ar, ai, "Wb/m"));
+    } else if (r.type === "mag") {
+      const A = ipn(r.A), Jz = r.props[reg].J;
       L.push("|B| = " + fmt(Math.hypot(f.vx, f.vy), "T"), "Bx = " + fmt(f.vx, "T") + "   By = " + fmt(f.vy, "T"),
-        "|H| = " + fmt(r.Hm[t], "A/m") + "   µr = " + +(1 / (r.nu[t] * FT.MU0)).toPrecision(4), "A = " + fmt(A, "Wb/m"));
+        "|H| = " + fmt(r.Hm[t], "A/m") + "   µr = " + +(1 / (r.nu[t] * FT.MU0)).toPrecision(4));
+      if (Jz) L.push("J = " + fmt(Jz * 1e-6, "A/mm²"));
+      L.push("A = " + fmt(A, "Wb/m"));
     } else {
       const V = f.bary[0] * r.V[mesh.tri[3 * t]] + f.bary[1] * r.V[mesh.tri[3 * t + 1]] + f.bary[2] * r.V[mesh.tri[3 * t + 2]];
       L.push("V = " + fmt(V, "V"), "|E| = " + fmt(Math.hypot(f.vx, f.vy) * 1e-3, "V/mm"), "Ex = " + fmt(f.vx * 1e-3, "V/mm") + "   Ey = " + fmt(f.vy * 1e-3, "V/mm"), "|D| = " + fmt(r.Dm[t], "C/m²"));
     }
     const st = post.stats[reg] || (post.stats[reg] = FT.regionStats(mesh, r, reg, S.depth * 1e-3));
     L.push("", "Zone : " + FT.getMaterial(S, lab ? lab.mat : "air").name, "Aire = " + +st.area.toPrecision(4) + " mm²",
-      (r.type === "mag" ? "|B| moyen = " + fmt(st.mean, "T") : "|E| moyen = " + fmt(st.mean * 1e-3, "V/mm")),
-      "Énergie = " + fmt(st.energy, "J"));
-    if (lab) L.push("Force : Fx = " + fmt(st.fx, "N") + "   Fy = " + fmt(st.fy, "N") + (st.contact ? "\n(zone non entourée d'air : force indicative)" : ""));
+      (r.type === "mag" ? "|B| moyen" + (r.harmonic ? " (crête)" : "") + " = " + fmt(st.mean, "T") : "|E| moyen = " + fmt(st.mean * 1e-3, "V/mm")),
+      (r.harmonic ? "Énergie moyenne = " : "Énergie = ") + fmt(st.energy, "J"));
+    if (r.harmonic && st.power > 0) L.push("Pertes = " + fmt(st.power, "W"));
+    if (r.harmonic && Math.hypot(st.Ir, st.Ii) > 1e-9) L.push("Courant total = " + pha(st.Ir, st.Ii, "A"));
+    if (lab) L.push((r.harmonic ? "Force moyenne : Fx = " : "Force : Fx = ") + fmt(st.fx, "N") + "   Fy = " + fmt(st.fy, "N") + (st.contact ? "\n(zone non entourée d'air : force indicative)" : ""));
     const ro = $("readout");
     ro.textContent = L.join("\n"); ro.hidden = false;
     draw();
@@ -525,7 +663,7 @@
     editing = { lab, p };
     const l = lab || { mat: "steel", srcType: "none", srcVal: 0, magAngle: 0, elecType: "none", elecVal: 0 };
     fillMatSelect(l.mat);
-    $("dAngle").value = l.magAngle || 0; $("dSrc").value = l.srcType || "none"; $("dSrcVal").value = l.srcVal || 0;
+    $("dAngle").value = l.magAngle || 0; $("dSrc").value = l.srcType || "none"; $("dSrcVal").value = l.srcVal || 0; $("dPhase").value = l.phase || 0;
     $("dElec").value = l.elecType || "none"; $("dElecVal").value = l.elecVal || 0;
     $("dReset").hidden = !lab;
     $("dCustom").open = false;
@@ -565,7 +703,7 @@
     const add = (m) => {
       const b = document.createElement("button");
       b.type = "button"; b.className = armed === m.id ? "on" : "";
-      b.title = m.name + " — µr " + m.mur + (m.Js ? ", Js " + m.Js + " T" : "") + (m.Br ? ", Br " + m.Br + " T" : "") + ", εr " + m.epsr + (m.cond ? ", conducteur" : "");
+      b.title = m.name + " — µr " + m.mur + (m.Js ? ", Js " + m.Js + " T" : "") + (m.Br ? ", Br " + m.Br + " T" : "") + ", εr " + m.epsr + (m.sigma ? ", σ " + m.sigma + " MS/m" : m.cond ? ", conducteur" : "");
       b.innerHTML = '<span class="dot"></span><span></span>';
       b.firstChild.style.background = m.color; b.lastChild.textContent = shortName(m.name);
       b.onclick = () => {
@@ -594,7 +732,8 @@
   $("nOk").onclick = () => {
     const m = { id: "c" + Date.now().toString(36), name: $("nName").value.trim() || "Matériau " + (S.customMats.length + 1), color: $("nColor").value,
       mur: Math.max(1e-3, num($("nMur").value, 1)), Js: Math.max(0, num($("nJs").value, 0)), Br: Math.max(0, num($("nBr").value, 0)),
-      epsr: Math.max(1e-3, num($("nEps").value, 1)), cond: $("nCond").checked };
+      epsr: Math.max(1e-3, num($("nEps").value, 1)), sigma: Math.max(0, num($("nSig").value, 0)) };
+    m.cond = m.sigma > 0;
     if (m.Br > 0) m.Js = 0;
     S.customMats.push(m); save();
     $("dNew").close();
@@ -603,14 +742,23 @@
     toast("« " + m.name + " » créé : double-cliquez sur une zone pour l'y mettre.", 2500);
   };
   function syncDlg() {
-    $("dMagnet").hidden = !(FT.getMaterial(S, $("dMat").value).Br > 0) || S.physics !== "mag";
+    const m = FT.getMaterial(S, $("dMat").value), ac = S.physics === "mag" && S.ac, st = $("dSrc").value, sg = FT.sigmaOf(m);
+    $("dMagnet").hidden = !(m.Br > 0) || S.physics !== "mag";
     $("dFsMag").hidden = S.physics !== "mag";
     $("dFsElec").hidden = S.physics !== "elec";
+    $("dPhaseL").hidden = !ac || st === "none";
+    let hint = "";
+    if (st === "NI" || st === "J") hint = "Bobine en fil fin : courant réparti uniformément" + (ac ? ", sans effet de peau." : ".");
+    else if (st === "I") hint = sg > 0 ? (ac ? "Conducteur massif : le courant se répartit selon l'effet de peau." : "Conducteur massif : en continu, le courant est uniforme.") : "Matériau non conducteur : courant réparti uniformément.";
+    else if (ac && sg > 0) hint = "Sans source : courants induits (courant total nul dans la zone).";
+    if (sg > 0) hint += " σ = " + m.sigma + " MS/m" + (ac ? ", δ = " + mm(Math.sqrt(2 / (2 * Math.PI * S.freq * FT.MU0 * m.mur * sg)) * 1e3) + " à " + fmtHz(S.freq) : "") + ".";
+    if (ac && st !== "none") hint += " Valeur crête.";
+    $("dSrcHint").textContent = hint.trim();
   }
   function closeDlg(apply) {
     if (apply && editing) {
       pushUndo();
-      const v = { mat: $("dMat").value, magAngle: num($("dAngle").value, 0), srcType: $("dSrc").value, srcVal: num($("dSrcVal").value, 0), elecType: $("dElec").value, elecVal: num($("dElecVal").value, 0) };
+      const v = { mat: $("dMat").value, magAngle: num($("dAngle").value, 0), srcType: $("dSrc").value, srcVal: num($("dSrcVal").value, 0), phase: num($("dPhase").value, 0), elecType: $("dElec").value, elecVal: num($("dElecVal").value, 0) };
       if (apply === "reset") S.labels = S.labels.filter((l) => l !== editing.lab);
       else if (editing.lab) Object.assign(editing.lab, v);
       else S.labels.push(Object.assign({ x: editing.p.x, y: editing.p.y }, v));
@@ -816,15 +964,36 @@
     updateUI(); draw();
   }
   document.querySelectorAll("#dmode button").forEach((b) => (b.onclick = () => { setDrawMode(b.dataset.dm); if (tool !== "draw") setTool("draw"); }));
+  function fillQty() {
+    const q = $("inQty"), list = QTY[qtyKey()];
+    q.innerHTML = "";
+    for (const [v, t] of list) { const o = document.createElement("option"); o.value = v; o.textContent = t; q.appendChild(o); }
+    if (!list.some((x) => x[0] === disp.qty)) { disp.qty = list[0][0]; disp.max = null; $("inMax").value = ""; }
+    q.value = disp.qty;
+  }
   function setPhysics(p) {
     S.physics = p;
     document.querySelectorAll("#phys button").forEach((b) => b.classList.toggle("on", b.dataset.phys === p));
-    const q = $("inQty");
-    q.innerHTML = "";
-    for (const [v, t] of QTY[p]) { const o = document.createElement("option"); o.value = v; o.textContent = t; q.appendChild(o); }
-    disp.qty = QTY[p][0][0]; disp.max = null; $("inMax").value = "";
+    disp.qty = QTY[qtyKey()][0][0]; disp.max = null; $("inMax").value = "";
+    fillQty();
     $("ckLines").parentNode.lastChild.textContent = p === "mag" ? " Lignes de flux" : " Équipotentielles";
+    $("secAC").hidden = p !== "mag";
+    $("acDisp").hidden = !(p === "mag" && S.ac);
   }
+  // régime magnétique : continu ou sinusoïdal
+  function setAC(on, quiet) {
+    S.ac = !!on;
+    document.querySelectorAll("#acMode button").forEach((b) => b.classList.toggle("on", (b.dataset.ac === "1") === S.ac));
+    $("lbFreq").hidden = $("acHint").hidden = !S.ac;
+    $("acDisp").hidden = !(S.physics === "mag" && S.ac);
+    document.querySelector('#phys [data-phys="mag"]').textContent = S.ac ? "Magnétique ∿" : "Magnétique";
+    fillQty();
+    if (!quiet) { changed(true); toast(S.ac ? "Courant sinusoïdal à " + fmtHz(S.freq) + " (valeurs crête)" : "Courant continu", 1800); }
+  }
+  document.querySelectorAll("#acMode button").forEach((b) => (b.onclick = () => setAC(b.dataset.ac === "1")));
+  $("inFreq").onchange = (e) => { S.freq = Math.max(1e-3, num(e.target.value, S.freq)); e.target.value = S.freq; changed(true); };
+  $("inPhase").oninput = (e) => { disp.phase = num(e.target.value, 0); $("phaseVal").textContent = Math.round(disp.phase) + "°"; applyInstant(); draw(); };
+  $("ckAnim").onchange = (e) => { disp.anim = e.target.checked; if (disp.anim) startAnim(); };
   document.querySelectorAll("#phys button").forEach((b) => (b.onclick = () => { setPhysics(b.dataset.phys); result = null; post = null; uploadColors(); changed(true); }));
   $("btnSolve").onclick = solve;
   $("btnUndo").onclick = () => { if (undo.length) { redo.push(snapshot()); restore(undo.pop()); } };
@@ -849,6 +1018,7 @@
   for (const [id, k] of [["ckLines", "lines"], ["ckArrows", "arrows"], ["ckMesh", "mesh"], ["ckDims", "dims"]]) $(id).onchange = (e) => { disp[k] = e.target.checked; draw(); };
 
   $("dMat").onchange = syncDlg;
+  $("dSrc").onchange = syncDlg;
   $("dOk").onclick = () => closeDlg(true);
   $("dCancel").onclick = () => closeDlg(false);
   $("dReset").onclick = () => closeDlg("reset");
@@ -856,7 +1026,8 @@
   $("cAdd").onclick = () => {
     const pal = ["#c7b8ea", "#a8d5ba", "#f2c6a0", "#9fc5e8", "#e6b8af", "#d5a6bd"];
     const m = { id: "c" + Date.now().toString(36), name: $("cName").value.trim() || "Matériau " + (S.customMats.length + 1), color: pal[S.customMats.length % pal.length],
-      mur: Math.max(1e-3, num($("cMur").value, 1)), Js: Math.max(0, num($("cJs").value, 0)), Br: Math.max(0, num($("cBr").value, 0)), epsr: Math.max(1e-3, num($("cEps").value, 1)), cond: $("cCond").checked };
+      mur: Math.max(1e-3, num($("cMur").value, 1)), Js: Math.max(0, num($("cJs").value, 0)), Br: Math.max(0, num($("cBr").value, 0)), epsr: Math.max(1e-3, num($("cEps").value, 1)), sigma: Math.max(0, num($("cSig").value, 0)) };
+    m.cond = m.sigma > 0;
     if (m.Br > 0) m.Js = 0;
     S.customMats.push(m);
     fillMatSelect(m.id); syncDlg(); renderPalette();
@@ -872,7 +1043,9 @@
   }
   function syncInputs() {
     $("inGrid").value = S.grid; $("inGridReal").value = S.gridReal; $("inDepth").value = S.depth; $("inMargin").value = S.airMargin; $("inMesh").value = S.meshN; $("inBc").value = S.bcElec;
+    $("inFreq").value = S.freq;
     setPhysics(S.physics);
+    setAC(S.ac, true);
     setDrawMode(S.drawMode || "grid", true);
     if (armed && !FT.defaultMaterials.concat(S.customMats).some((m) => m.id === armed)) armed = null;
     renderPalette();
@@ -887,7 +1060,7 @@
       edges.push({ type: "arc", ax: cx - r, ay: cy, bx: cx + r, by: cy, bulge: 1 });
     };
     const L = (x, y, mat, o = {}) => ({
-      x, y, mat, srcType: o.NI ? "NI" : o.J ? "J" : "none", srcVal: o.NI || o.J || 0, magAngle: o.ang || 0,
+      x, y, mat, srcType: o.NI ? "NI" : o.J ? "J" : o.I ? "I" : "none", srcVal: o.NI || o.J || o.I || 0, magAngle: o.ang || 0, phase: o.ph || 0,
       elecType: o.V != null ? "V" : "none", elecVal: o.V || 0,
     });
     const make = (labels, opts) => ({ S: Object.assign(defaults(), opts, { edges, labels }) });
@@ -953,6 +1126,22 @@
         const { circle, L, make } = exampleKit();
         circle(0, 0, 1.5); circle(0, 0, 5); circle(0, 0, 6);
         return make([L(0, 0, "cu", { V: 100 }), L(3, 0, "ptfe"), L(5.5, 0, "cu", { V: 0 })], { physics: "elec", grid: 0.5, gridReal: 1, depth: 1000, airMargin: 0.5 });
+      },
+    },
+    {
+      name: "Courants de Foucault (sinusoïdal)", desc: "Bobine 100 A·t à 1 kHz au-dessus d'une plaque d'alu de 3 mm : J induit et pertes",
+      build() {
+        const { rect, L, make } = exampleKit();
+        rect(-30, 0, 30, 3); rect(-15, 6, -5, 16); rect(5, 6, 15, 16);
+        return make([L(0, 1.5, "alu"), L(-10, 11, "cu", { NI: 100 }), L(10, 11, "cu", { NI: -100 })], { ac: true, freq: 1000, grid: 1, gridReal: 10, depth: 50 });
+      },
+    },
+    {
+      name: "Effet de peau et de proximité", desc: "Deux barres de cuivre 6×20 mm, ±200 A à 1 kHz : R_ac/R_dc et L de la boucle",
+      build() {
+        const { rect, L, make } = exampleKit();
+        rect(0, 0, 6, 20); rect(10, 0, 16, 20);
+        return make([L(3, 10, "cu", { I: 200 }), L(13, 10, "cu", { I: -200 })], { ac: true, freq: 1000, grid: 1, gridReal: 5, depth: 1000 });
       },
     },
   ];

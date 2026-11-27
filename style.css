@@ -116,3 +116,11 @@ dialog { background: var(--panel); color: var(--ink); }
   position: absolute; left: 0; top: 50%; transform: translateY(-50%); writing-mode: vertical-rl;
   min-height: 0; padding: 12px 6px; border-radius: 0 8px 8px 0; background: var(--panel); box-shadow: 0 2px 8px rgba(0,0,0,.15);
 }
+
+/* régime sinusoïdal */
+#acMode { margin: 4px 0 2px; }
+#acMode button { flex: 1; }
+#acMode button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+#acDisp label .val { margin-left: auto; color: var(--mute); font-variant-numeric: tabular-nums; }
+#dSrcHint:empty { display: none; }
+dialog label #dSrc { width: 250px; max-width: 62vw; }

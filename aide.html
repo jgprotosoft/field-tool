@@ -118,7 +118,8 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
     <li><a href="#materiaux">Matériaux et sources</a></li>
     <li><a href="#calcul">Calculer et lire les résultats</a></li>
     <li><a href="#sonde">La sonde</a></li>
-    <li><a href="#exemples">Les six exemples</a></li>
+    <li><a href="#ac">Courant sinusoïdal</a></li>
+    <li><a href="#exemples">Les huit exemples</a></li>
     <li><a href="#exemple">Pas à pas : électroaimant en C</a></li>
     <li><a href="#croquis">Partir d'un croquis Freeform</a></li>
     <li><a href="#fichiers">Enregistrer et ouvrir</a></li>
@@ -278,17 +279,19 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
   <h3>Matériaux fournis</h3>
   <div class="tbl"><table>
     <tr><th>Famille</th><th>Matériaux</th><th>Paramètres</th></tr>
-    <tr><td>Conducteurs</td><td>Cuivre (bobine), Aluminium</td><td class="num">µr 1</td></tr>
-    <tr><td>Magnétiques doux</td><td>Fer doux linéaire<br>Acier doux<br>Tôle FeSi<br>Ferrite MnZn<br>Poudre de fer</td><td class="num">µr 2000, sans saturation<br>µr 1500, Js 2,05 T<br>µr 5000, Js 1,95 T<br>µr 2200, Js 0,45 T<br>µr 60, Js 1,2 T</td></tr>
-    <tr><td>Aimants</td><td>NdFeB N42<br>SmCo<br>Ferrite</td><td class="num">Br 1,30 T<br>Br 1,05 T<br>Br 0,40 T</td></tr>
+    <tr><td>Conducteurs</td><td>Cuivre<br>Aluminium</td><td class="num">µr 1, σ 58 MS/m<br>µr 1, σ 35 MS/m</td></tr>
+    <tr><td>Magnétiques doux</td><td>Fer doux linéaire<br>Acier doux<br>Tôle FeSi feuilletée<br>Ferrite MnZn<br>Poudre de fer</td><td class="num">µr 2000, sans saturation, σ 10 MS/m<br>µr 1500, Js 2,05 T, σ 6 MS/m<br>µr 5000, Js 1,95 T, σ 0 *<br>µr 2200, Js 0,45 T<br>µr 60, Js 1,2 T</td></tr>
+    <tr><td>Aimants</td><td>NdFeB N42<br>SmCo<br>Ferrite</td><td class="num">Br 1,30 T, σ 0,67 MS/m<br>Br 1,05 T, σ 1,2 MS/m<br>Br 0,40 T</td></tr>
     <tr><td>Isolants</td><td>FR4, PTFE, Kapton, Alumine, Eau</td><td class="num">εr 4,4 / 2,1 / 3,4 / 9,8 / 80</td></tr>
   </table></div>
-  <p>Ce sont des ordres de grandeur. Pour une nuance précise, ouvrez <b>Créer un matériau personnalisé</b> dans la même fenêtre : nom, µr, Js (0 = linéaire), Br (0 = pas d'aimant), εr, conducteur ou non.</p>
+  <p>Ce sont des ordres de grandeur. σ ne sert qu'en courant sinusoïdal. * Les tôles isolées entre elles bloquent les courants selon la profondeur : en 2D, une tôle feuilletée a σ = 0. Pour une nuance précise, ouvrez <b>Créer un matériau personnalisé</b> dans la même fenêtre (ou le bouton <b>+</b> de la palette) : nom, µr, Js (0 = linéaire), Br (0 = pas d'aimant), εr, conductivité σ (0 = isolant).</p>
 
   <h3>En magnétique</h3>
   <ul>
-    <li><b>Ampères-tours totaux (A·t)</b> : le courant total qui traverse la zone, N × I. C'est le plus simple pour une bobine.</li>
-    <li><b>Densité de courant (A/mm²)</b> : pratique quand on raisonne en échauffement du cuivre.</li>
+    <li><b>Bobine : ampères-tours (A·t)</b> : le courant total qui traverse la zone, N × I. C'est le plus simple pour une bobine.</li>
+    <li><b>Bobine : densité de courant (A/mm²)</b> : pratique quand on raisonne en échauffement du cuivre.</li>
+    <li><b>Conducteur massif : courant (A)</b> : barre, méplat, spire massive. En continu le courant est uniforme ; en sinusoïdal sa répartition est calculée (effet de peau).</li>
+    <li><b>Phase (°)</b> : en courant sinusoïdal seulement (voir la section 10).</li>
     <li><b>Signe</b> : <b>+</b> = courant sortant du plan (⊙), <b>−</b> = entrant (⊗).</li>
     <li><b>Aimant</b> : une direction d'aimantation apparaît (0° = vers la droite, 90° = vers le haut), avec les raccourcis → ↑ ← ↓.</li>
   </ul>
@@ -319,6 +322,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
         <li>Ampères-tours totaux</li>
         <li>Flux lié par spire (Wb)</li>
         <li>A<sub>L</sub> = Φ/NI (H/spire²), « apparente » si saturation ou aimant</li>
+        <li>En sinusoïdal : pertes, R/N², R<sub>ac</sub>/R<sub>dc</sub> (section 10)</li>
       </ul>
     </div>
     <div class="card">
@@ -332,7 +336,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
   <p>Les avertissements en orange signalent un modèle douteux : pas de source, courants non équilibrés, convergence incomplète.</p>
   <h3>Panneau Affichage</h3>
   <ul>
-    <li><b>Grandeur</b> : |B| ou |H| en magnétique, V ou |E| en électrique.</li>
+    <li><b>Grandeur</b> : |B|, |H| ou |J| (densité de courant, A/mm²) en magnétique, plus les <b>pertes</b> (W/cm³) en sinusoïdal ; V ou |E| en électrique.</li>
     <li><b>Échelle max</b> : fixe le haut de l'échelle de couleurs, pour comparer deux calculs. Vide = automatique.</li>
     <li><b>Lignes de champ</b> (lignes de flux ou équipotentielles), <b>Flèches</b>, <b>Maillage</b>, <b>Cotes</b>.</li>
   </ul>
@@ -346,7 +350,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
       <h3>Au point touché</h3>
       <ul>
         <li>Position x, y (mm)</li>
-        <li>Magnétique : |B|, Bx, By, |H|, µr local (montre la saturation), potentiel vecteur A</li>
+        <li>Magnétique : |B|, Bx, By, |H|, µr local (montre la saturation), J, potentiel vecteur A ; en sinusoïdal, avec la phase de chaque grandeur et les pertes locales</li>
         <li>Électrique : V, |E|, Ex, Ey (V/mm), |D|</li>
       </ul>
     </div>
@@ -356,15 +360,48 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
         <li>Matériau et aire (mm²)</li>
         <li>|B| ou |E| moyen</li>
         <li>Énergie stockée dans la zone</li>
-        <li>Force Fx, Fy (N) sur la pièce</li>
+        <li>En sinusoïdal : pertes et courant total de la zone</li>
+        <li>Force Fx, Fy (N) sur la pièce (moyenne sur une période en sinusoïdal)</li>
       </ul>
     </div>
   </div>
   <div class="warn"><b>Force</b> Elle n'est fiable que pour une pièce entourée d'air (par exemple la partie mobile séparée par l'entrefer). Pour une pièce en contact avec une autre, la valeur est marquée « indicative ».</div>
 </section>
 
+<section id="ac">
+  <h2><span class="n">10</span>Courant sinusoïdal</h2>
+  <p>En <span class="chip">Magnétique</span>, le panneau <span class="chip">Réglages</span> commence par <b>Courant : Continu / Sinusoïdal</b> et la <b>fréquence</b> (Hz). En sinusoïdal, le bouton devient <span class="chip">Magnétique ∿</span> et le calcul tient compte des <b>courants induits</b> (courants de Foucault), de l'<b>effet de peau</b> et de l'<b>effet de proximité</b>.</p>
+  <h3>Trois sortes de zones</h3>
+  <div class="tbl"><table>
+    <tr><th>Zone</th><th>Source</th><th>Comportement</th></tr>
+    <tr><td><b>Bobine</b></td><td>A·t ou A/mm²</td><td>Fil fin (ou Litz) : courant uniforme, sans effet de peau. Les pertes du fil ne sont pas calculées, elles dépendent du nombre de spires.</td></tr>
+    <tr><td><b>Conducteur massif</b></td><td>Courant (A)</td><td>Le courant total est imposé ; sa répartition dans la section est calculée. Résultats : R<sub>ac</sub> et R<sub>ac</sub>/R<sub>dc</sub>.</td></tr>
+    <tr><td><b>Pièce conductrice</b></td><td>Aucune, σ &gt; 0</td><td>Plaque, blindage, noyau en acier massif : siège de courants induits, de somme nulle (la pièce se referme à ses extrémités).</td></tr>
+  </table></div>
+  <h3>Valeurs et phases</h3>
+  <ul>
+    <li>Toutes les valeurs saisies et affichées sont des <b>amplitudes crête</b> (valeur efficace = crête / √2).</li>
+    <li>Chaque source a une <b>phase</b> (°), 0 par défaut. Par exemple 0°, 120° et 240° pour trois phases. Le signe garde son sens : + sortant ⊙, − entrant ⊗.</li>
+    <li>L'<b>épaisseur de peau</b> δ = √(2 / (ω·µ·σ)) est donnée dans la fenêtre de la zone et sous le maillage. Le maillage est affiné automatiquement à δ/2 le long des conducteurs massifs.</li>
+  </ul>
+  <h3>Résultats</h3>
+  <ul>
+    <li><b>Pertes Joule</b> totales et par zone (W), dans les pièces conductrices et les conducteurs massifs.</li>
+    <li><b>Bobines</b> (toutes en phase, au signe près) : A<sub>L</sub> = L/N² et R/N², la résistance qui représente les pertes induites. L'impédance vaut Z = N²·(R/N² + jω·A<sub>L</sub>), plus la résistance du fil.</li>
+    <li><b>Conducteurs massifs</b> : R<sub>ac</sub> et R<sub>ac</sub>/R<sub>dc</sub> pour chacun ; R et L de la boucle quand leurs courants s'équilibrent (aller et retour).</li>
+    <li>Énergie magnétique <b>moyenne</b> sur une période.</li>
+  </ul>
+  <h3>Affichage</h3>
+  <ul>
+    <li><b>|B| crête</b>, <b>|H| crête</b>, <b>|J| crête</b> (A/mm²) et <b>Pertes</b> (W/cm³) en couleurs.</li>
+    <li><b>Instant ωt</b> : les lignes de flux et les flèches montrent le champ à cet instant de la période. <b>Animer</b> fait défiler une période en 2 secondes. Les couleurs restent les amplitudes crête.</li>
+  </ul>
+  <div class="warn"><b>Saturation</b> Le calcul reste au premier harmonique : la perméabilité est prise à l'induction crête. Les formes d'onde déformées et les pertes fer (hystérésis, courants dans les tôles) ne sont pas calculées. Les aimants sont ignorés en sinusoïdal.</div>
+  <div class="tip"><b>Contrôle</b> Barre de cuivre ronde de Ø 10 mm à 1 kHz : R<sub>ac</sub>/R<sub>dc</sub> = 1,449 calculé, 1,450 en théorie (fonctions de Bessel) ; 2,955 contre 2,942 à 5 kHz.</div>
+</section>
+
 <section id="exemples">
-  <h2><span class="n">10</span>Les six exemples</h2>
+  <h2><span class="n">11</span>Les huit exemples</h2>
   <p><span class="chip">Réglages</span> → <span class="chip light">Exemple</span> ouvre la liste. Chaque exemple règle lui-même la grille, la profondeur et le type de calcul ; il ne reste qu'à toucher <span class="chip go">Calculer</span>.</p>
   <div class="tbl"><table>
     <tr><th>Exemple</th><th>Ce qu'il montre</th><th>À regarder</th></tr>
@@ -374,11 +411,13 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
     <tr><td><b>Circuit à aimant NdFeB</b><br>sans bobine</td><td>Aimant aimanté vers le haut (90°) dans la jambe gauche, entrefer à droite.</td><td>|B| dans l'entrefer ; changer la direction d'aimantation avec l'outil Matériau.</td></tr>
     <tr><td><b>Condensateur plan FR4</b><br>100 V / 0 V</td><td>Deux armatures, 4 mm de FR4 entre elles.</td><td>Capacité (environ 17 pF, contre 15,6 pF sans effets de bord) et |E| aux bords des armatures.</td></tr>
     <tr><td><b>Câble coaxial</b><br>âme 100 V, blindage 0 V</td><td>Géométrie en cercles, isolant PTFE, profondeur 1 m.</td><td>Capacité linéique (97,5 pF/m, théorie 97,0) et |E| maximal contre l'âme.</td></tr>
+    <tr><td><b>Courants de Foucault</b><br>sinusoïdal 1 kHz, 100 A·t</td><td>Bobine au-dessus d'une plaque d'aluminium de 3 mm.</td><td>|J| induit sous la bobine, pertes dans la plaque (55 mW), A<sub>L</sub> et R/N². Repassez en Continu pour voir A<sub>L</sub> remonter.</td></tr>
+    <tr><td><b>Effet de peau et de proximité</b><br>sinusoïdal 1 kHz, ±200 A</td><td>Deux barres de cuivre 6 × 20 mm, aller et retour, profondeur 1 m.</td><td>|J| concentré sur les faces en regard ; R<sub>ac</sub>/R<sub>dc</sub> ≈ 1,73 ; R et L de la boucle (240 nH/m). Cochez Animer.</td></tr>
   </table></div>
 </section>
 
 <section id="exemple">
-  <h2><span class="n">11</span>Pas à pas : électroaimant en C</h2>
+  <h2><span class="n">12</span>Pas à pas : électroaimant en C</h2>
   <figure>
     <svg viewBox="0 0 560 230" role="img" aria-label="Circuit en C avec entrefer à droite et bobine en deux zones autour de la jambe gauche">
       <defs><pattern id="g2" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="var(--grid)" stroke-width="1"/></pattern></defs>
@@ -408,7 +447,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="croquis">
-  <h2><span class="n">12</span>Partir d'un croquis Freeform</h2>
+  <h2><span class="n">13</span>Partir d'un croquis Freeform</h2>
   <ol class="steps">
     <li>Dans Freeform, exportez le croquis en image (Partager → Exporter en PNG ou capture d'écran), enregistrée dans Photos ou Fichiers.</li>
     <li>Dans Field Tool : <span class="chip">Réglages</span> → Image de fond → <span class="chip light">Importer</span>.</li>
@@ -419,7 +458,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="fichiers">
-  <h2><span class="n">13</span>Enregistrer et ouvrir</h2>
+  <h2><span class="n">14</span>Enregistrer et ouvrir</h2>
   <ul>
     <li><b>Sauvegarde automatique</b> : le dessin en cours est conservé dans l'iPad, et vous le retrouvez à la réouverture. Chaque appareil, et chaque navigateur, a sa propre sauvegarde.</li>
     <li><b>Enregistrer</b> : affiche le projet sous forme de texte. Touchez <b>Copier</b>, puis collez ce texte dans Notes ou dans un fichier. Sur PC, <b>Télécharger</b> crée un fichier <code>.json</code>.</li>
@@ -430,9 +469,10 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="reglages">
-  <h2><span class="n">14</span>Réglages du modèle</h2>
+  <h2><span class="n">15</span>Réglages du modèle</h2>
   <div class="tbl"><table>
     <tr><th>Réglage</th><th>Effet</th></tr>
+    <tr><td>Courant (magnétique)</td><td><b>Continu</b> : magnétostatique. <b>Sinusoïdal</b> : courants induits à la fréquence choisie (section 10).</td></tr>
     <tr><td>Marge d'air (× taille)</td><td>Taille de la boîte d'air autour du dessin. 1 = une fois la taille du dessin de chaque côté. Augmentez-la si le champ de fuite compte (aimant seul, bobine sans noyau).</td></tr>
     <tr><td>Finesse du maillage</td><td>Plus à droite = plus d'éléments, plus précis, plus lent. Le maillage est déjà raffiné automatiquement dans les entrefers et les coins.</td></tr>
     <tr><td>Frontière (électrique)</td><td><b>Potentiel 0 V</b> : la boîte d'air est une masse lointaine. <b>Isolée</b> : aucun champ ne sort de la boîte.</td></tr>
@@ -441,12 +481,12 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 </section>
 
 <section id="limites">
-  <h2><span class="n">15</span>Précision et limites</h2>
+  <h2><span class="n">16</span>Précision et limites</h2>
   <ul>
     <li><b>2D plan</b> : la pièce est supposée infiniment longue selon la profondeur. Pas encore de calcul axisymétrique (pièces de révolution).</li>
     <li><b>Précision</b> : environ 2 à 5 % sur les valeurs locales avec la finesse par défaut. Pour vérifier un chiffre, augmentez la finesse et regardez s'il bouge.</li>
     <li><b>Saturation</b> : loi B(H) analytique à partir de µr et Js, pas de courbe constructeur. Approchez une nuance précise avec un matériau personnalisé.</li>
-    <li><b>Magnétostatique et électrostatique</b> seulement : pas de courants de Foucault, pas de fréquence, pas de thermique.</li>
+    <li><b>Sinusoïdal</b> : premier harmonique seulement, pas de pertes fer ni de régime transitoire. Pas de thermique.</li>
     <li><b>Force</b> fiable seulement pour une pièce entourée d'air.</li>
   </ul>
   <p>Pour une validation finale, gardez COMSOL. Field Tool sert à trier rapidement les idées.</p>

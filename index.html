@@ -63,6 +63,15 @@
     <button id="palShow" title="Afficher la palette de matériaux" hidden>Matériaux ›</button>
   </div>
   <aside id="panel">
+    <section id="secAC">
+      <h2>Courant (magnétique)</h2>
+      <div class="grp seg" id="acMode">
+        <button type="button" data-ac="0" class="on">Continu</button>
+        <button type="button" data-ac="1">Sinusoïdal</button>
+      </div>
+      <label id="lbFreq">Fréquence (Hz) <input id="inFreq" type="number" min="0.001" step="any" inputmode="decimal"></label>
+      <p class="hint" id="acHint">Amplitudes crête. Les zones conductrices sans source sont le siège de courants induits.</p>
+    </section>
     <section>
       <h2>Modèle</h2>
       <label>Grille de dessin (mm) <input id="inGrid" type="number" min="0.01" step="any" inputmode="decimal" title="Pas d'accrochage des segments et des arcs"></label>
@@ -79,6 +88,10 @@
       <h2>Affichage</h2>
       <label>Grandeur <select id="inQty"></select></label>
       <label>Échelle max <input id="inMax" type="number" step="any" placeholder="auto" inputmode="decimal"></label>
+      <div id="acDisp" hidden>
+        <label>Instant ωt <span class="val" id="phaseVal">0°</span> <input id="inPhase" type="range" min="0" max="360" step="5" value="0"></label>
+        <label class="chk"><input id="ckAnim" type="checkbox"> Animer (lignes et flèches)</label>
+      </div>
       <label class="chk"><input id="ckLines" type="checkbox" checked> Lignes de champ</label>
       <label class="chk"><input id="ckArrows" type="checkbox"> Flèches</label>
       <label class="chk"><input id="ckMesh" type="checkbox"> Maillage</label>
@@ -121,7 +134,7 @@
       <label>Js saturation (T, 0 = linéaire) <input id="cJs" type="number" step="any" value="0"></label>
       <label>Br aimant (T, 0 = aucun) <input id="cBr" type="number" step="any" value="0"></label>
       <label>εr (permittivité relative) <input id="cEps" type="number" step="any" value="1"></label>
-      <label class="chk"><input id="cCond" type="checkbox"> Conducteur électrique</label>
+      <label>Conductivité σ (MS/m, 0 = isolant) <input id="cSig" type="number" step="any" value="0"></label>
       <button type="button" id="cAdd">Ajouter ce matériau</button>
     </details>
     <fieldset id="dMagnet">
@@ -131,8 +144,10 @@
     </fieldset>
     <fieldset id="dFsMag">
       <legend>Source magnétique</legend>
-      <label>Type <select id="dSrc"><option value="none">Aucune</option><option value="NI">Ampères-tours totaux (A·t)</option><option value="J">Densité de courant (A/mm²)</option></select></label>
+      <label>Type <select id="dSrc"><option value="none">Aucune</option><option value="NI">Bobine : ampères-tours (A·t)</option><option value="J">Bobine : densité de courant (A/mm²)</option><option value="I">Conducteur massif : courant (A)</option></select></label>
       <label>Valeur (+ = sortant ⊙, − = entrant ⊗) <input id="dSrcVal" type="number" step="any" value="0"></label>
+      <label id="dPhaseL">Phase (°) <input id="dPhase" type="number" step="any" value="0"></label>
+      <p class="hint" id="dSrcHint"></p>
     </fieldset>
     <fieldset id="dFsElec">
       <legend>Source électrique</legend>
@@ -156,7 +171,7 @@
     <label>Js saturation (T, 0 = linéaire) <input id="nJs" type="number" step="any" value="0" inputmode="decimal"></label>
     <label>Br aimant (T, 0 = aucun) <input id="nBr" type="number" step="any" value="0" inputmode="decimal"></label>
     <label>εr (permittivité relative) <input id="nEps" type="number" step="any" value="1" inputmode="decimal"></label>
-    <label class="chk"><input id="nCond" type="checkbox"> Conducteur électrique</label>
+    <label>Conductivité σ (MS/m, 0 = isolant) <input id="nSig" type="number" step="any" value="0" inputmode="decimal"></label>
     <div class="btns end">
       <button type="button" id="nCancel">Annuler</button>
       <button type="button" id="nOk" class="primary">Créer</button>

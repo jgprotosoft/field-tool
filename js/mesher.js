@@ -149,6 +149,11 @@
       mx[i] = (X[pa[i]] + X[pb[i]]) / 2; my[i] = (Y[pa[i]] + Y[pb[i]]) / 2;
       hl[i] = Math.hypot(X[pb[i]] - X[pa[i]], Y[pb[i]] - Y[pa[i]]) / 2;
       ss[i] = pout[i] ? hfar : hmax;
+      // taille imposée par l'appelant (épaisseur de peau des conducteurs), en mm
+      if (o.cap && !pout[i]) {
+        const c = o.cap(X[pa[i]] / sc + bx.x0, Y[pa[i]] / sc + bx.y0, X[pb[i]] / sc + bx.x0, Y[pb[i]] / sc + bx.y0) * sc;
+        if (c < ss[i]) ss[i] = Math.max(hmin, c);
+      }
     }
     const ptSeg = FT.ptSeg;
     const lim = hmax / 0.6;
