@@ -119,7 +119,7 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
     <li><a href="#calcul">Calculer et lire les résultats</a></li>
     <li><a href="#sonde">La sonde</a></li>
     <li><a href="#ac">Courant sinusoïdal</a></li>
-    <li><a href="#exemples">Les huit exemples</a></li>
+    <li><a href="#exemples">Les dix exemples</a></li>
     <li><a href="#exemple">Pas à pas : électroaimant en C</a></li>
     <li><a href="#croquis">Partir d'un croquis Freeform</a></li>
     <li><a href="#fichiers">Enregistrer et ouvrir</a></li>
@@ -393,15 +393,15 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
   </ul>
   <h3>Affichage</h3>
   <ul>
-    <li><b>|B| crête</b>, <b>|H| crête</b>, <b>|J| crête</b> (A/mm²) et <b>Pertes</b> (W/cm³) en couleurs.</li>
+    <li><b>|B| crête</b>, <b>|H| crête</b>, <b>|J| crête</b> (A/mm²) et <b>Pertes</b> (W/cm³) en couleurs. Pour |J| et les pertes, l'échelle automatique s'arrête au 98<sup>e</sup> centile : les pointes (arêtes face à un entrefer) apparaissent saturées en rouge ; la sonde donne leur valeur exacte.</li>
     <li><b>Instant ωt</b> : les lignes de flux et les flèches montrent le champ à cet instant de la période. <b>Animer</b> fait défiler une période en 2 secondes. Les couleurs restent les amplitudes crête.</li>
   </ul>
   <div class="warn"><b>Saturation</b> Le calcul reste au premier harmonique : la perméabilité est prise à l'induction crête. Les formes d'onde déformées et les pertes fer (hystérésis, courants dans les tôles) ne sont pas calculées. Les aimants sont ignorés en sinusoïdal.</div>
-  <div class="tip"><b>Contrôle</b> Barre de cuivre ronde de Ø 10 mm à 1 kHz : R<sub>ac</sub>/R<sub>dc</sub> = 1,449 calculé, 1,450 en théorie (fonctions de Bessel) ; 2,955 contre 2,942 à 5 kHz.</div>
+  <div class="tip"><b>Contrôle</b> Barre de cuivre ronde de Ø 10 mm à 1 kHz : R<sub>ac</sub>/R<sub>dc</sub> = 1,449 calculé, 1,450 en théorie (fonctions de Bessel) ; 2,955 contre 2,942 à 5 kHz. Barre de 30 mm en encoche à 50 Hz : 3,211 contre 3,222.</div>
 </section>
 
 <section id="exemples">
-  <h2><span class="n">11</span>Les huit exemples</h2>
+  <h2><span class="n">11</span>Les dix exemples</h2>
   <p><span class="chip">Réglages</span> → <span class="chip light">Exemple</span> ouvre la liste. Chaque exemple règle lui-même la grille, la profondeur et le type de calcul ; il ne reste qu'à toucher <span class="chip go">Calculer</span>.</p>
   <div class="tbl"><table>
     <tr><th>Exemple</th><th>Ce qu'il montre</th><th>À regarder</th></tr>
@@ -413,6 +413,8 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
     <tr><td><b>Câble coaxial</b><br>âme 100 V, blindage 0 V</td><td>Géométrie en cercles, isolant PTFE, profondeur 1 m.</td><td>Capacité linéique (97,5 pF/m, théorie 97,0) et |E| maximal contre l'âme.</td></tr>
     <tr><td><b>Courants de Foucault</b><br>sinusoïdal 1 kHz, 100 A·t</td><td>Bobine au-dessus d'une plaque d'aluminium de 3 mm.</td><td>|J| induit sous la bobine, pertes dans la plaque (55 mW), A<sub>L</sub> et R/N². Repassez en Continu pour voir A<sub>L</sub> remonter.</td></tr>
     <tr><td><b>Effet de peau et de proximité</b><br>sinusoïdal 1 kHz, ±200 A</td><td>Deux barres de cuivre 6 × 20 mm, aller et retour, profondeur 1 m.</td><td>|J| concentré sur les faces en regard ; R<sub>ac</sub>/R<sub>dc</sub> ≈ 1,73 ; R et L de la boucle (240 nH/m). Cochez Animer.</td></tr>
+    <tr><td><b>Barre profonde en encoche</b><br>sinusoïdal 50 Hz, 1000 A</td><td>Barre de rotor en cuivre 6 × 30 mm au fond d'une encoche en tôles FeSi (cage d'écureuil).</td><td>Le courant remonte vers l'ouverture de l'encoche ; R<sub>ac</sub>/R<sub>dc</sub> = 3,21 (théorie 3,22). C'est l'effet qui donne leur couple de démarrage aux moteurs à barres profondes.</td></tr>
+    <tr><td><b>Inductance à feuillard</b><br>sinusoïdal 20 kHz, 10 A</td><td>Noyau ferrite E-I, entrefer de 1 mm sur la jambe centrale, 3 spires de feuillard de cuivre de 1 mm.</td><td>|J| au bas du feuillard intérieur, en face de l'entrefer : R<sub>ac</sub>/R<sub>dc</sub> ≈ 105 pour la spire intérieure, ≈ 2 pour l'extérieure. Zoomez sur l'entrefer ; essayez d'éloigner les feuillards de l'entrefer.</td></tr>
   </table></div>
 </section>
 

@@ -279,7 +279,8 @@
   //  - bobines (Js imposé, fil fin) : courant uniforme, pas de courants induits ;
   //  - zones conductrices massives k : J = σ(−jωA + g_k), g_k (gradient de tension) inconnu,
   //    fixé par le courant total imposé I_k (0 pour une pièce non alimentée : courants induits de somme nulle).
-  // Inconnues : A aux nœuds libres puis g'_k = −g_k ; système complexe symétrique résolu par COCG.
+  // Inconnues : A aux nœuds libres puis u_k = −g_k/ω (mise à l'échelle : toutes les lignes en ampères) ;
+  // système complexe symétrique résolu par COCG.
   function buildStructureC(mesh, dof, nA, gOf, nG) {
     const tri = mesh.tri, nt = tri.length / 3, reg = mesh.reg, nd = nA + nG;
     const rows = Array.from({ length: nA }, () => []);
@@ -396,12 +397,10 @@
     return { it, res: Math.sqrt(rn / bn) };
   }
 
-  // BiCGStab préconditionné (Gauss-Seidel symétrique par blocs 2×2) pour une matrice réelle en blocs 2×2
-  // structure M (rp, ci, dg), valeurs V[4k..4k+3] = [[v00, v01], [v10, v11]], vecteurs entrelacés (re, im)
-  function bicgstab2(M, V, b, x, tol, maxit) {
-    const { rp, ci, dg, nd: n } = M, N = 2 * n;
-    const r = new Float64Array(N), rh = new Float64Array(N), p = new Float64Array(N), v = new Float64Array(N);
-    const ph = new Float64Array(N), s = new Float64Array(N), sh = new Float64Array(N), t = new Float64Array(N);
+  // Opérations sur une matrice réelle en blocs 2×2 : structure M (rp, ci, dg), valeurs V[4k..4k+3] = [[v00, v01], [v10, v11]],
+  // vecteurs entrelacés (re, im). Préconditionneur : Gauss-Seidel symétrique par blocs.
+  function blockOps(M, V) {
+    const { rp, ci, dg, nd: n } = M;
     const Di = new Float64Array(4 * n);
     for (let i = 0; i < n; i++) {
       const k = 4 * dg[i], a = V[k], bb = V[k + 1], c = V[k + 2], d = V[k + 3], det = a * d - bb * c;
@@ -426,28 +425,84 @@
         z[2 * i] -= Di[4 * i] * s0 + Di[4 * i + 1] * s1; z[2 * i + 1] -= Di[4 * i + 2] * s0 + Di[4 * i + 3] * s1;
       }
     };
-    const dot = (a, c) => { let q = 0; for (let i = 0; i < N; i++) q += a[i] * c[i]; return q; };
+    return { mul, prec, N: 2 * n };
+  }
+
+  // BiCGStab préconditionné : rapide mais parfois erratique ; on garde le meilleur itéré et on s'arrête s'il diverge
+  function bicgstab2(M, V, b, x, tol, maxit) {
+    const { mul, prec, N } = blockOps(M, V);
+    const dot = (u, v) => { let q = 0; for (let i = 0; i < N; i++) q += u[i] * v[i]; return q; };
+    const r = new Float64Array(N), rh = new Float64Array(N), p = new Float64Array(N), v = new Float64Array(N);
+    const ph = new Float64Array(N), sv = new Float64Array(N), sh = new Float64Array(N), t = new Float64Array(N), xb = Float64Array.from(x);
     mul(x, t);
     for (let i = 0; i < N; i++) r[i] = b[i] - t[i];
     const bn = Math.sqrt(dot(b, b));
     if (bn === 0) { x.fill(0); return { it: 0, res: 0 }; }
     rh.set(r);
-    let rho = 1, al = 1, om = 1, it = 0, res = Math.sqrt(dot(r, r)) / bn;
+    let rho = 1, al = 1, om = 1, it = 0, res = Math.sqrt(dot(r, r)) / bn, best = res;
     for (; it < maxit && res > tol; it++) {
       const rho1 = dot(rh, r);
-      if (rho1 === 0) break;
+      if (!rho1) break;
       const be = (rho1 / rho) * (al / om);
       for (let i = 0; i < N; i++) p[i] = r[i] + be * (p[i] - om * v[i]);
       prec(p, ph); mul(ph, v);
       al = rho1 / dot(rh, v);
-      for (let i = 0; i < N; i++) s[i] = r[i] - al * v[i];
-      if (Math.sqrt(dot(s, s)) / bn <= tol) { for (let i = 0; i < N; i++) x[i] += al * ph[i]; res = Math.sqrt(dot(s, s)) / bn; it++; break; }
-      prec(s, sh); mul(sh, t);
-      om = dot(t, s) / dot(t, t);
-      for (let i = 0; i < N; i++) { x[i] += al * ph[i] + om * sh[i]; r[i] = s[i] - om * t[i]; }
+      for (let i = 0; i < N; i++) sv[i] = r[i] - al * v[i];
+      const sres = Math.sqrt(dot(sv, sv)) / bn;
+      if (sres <= tol) { for (let i = 0; i < N; i++) x[i] += al * ph[i]; res = sres; it++; break; }
+      prec(sv, sh); mul(sh, t);
+      om = dot(t, sv) / dot(t, t);
+      for (let i = 0; i < N; i++) { x[i] += al * ph[i] + om * sh[i]; r[i] = sv[i] - om * t[i]; }
       rho = rho1;
       res = Math.sqrt(dot(r, r)) / bn;
-      if (om === 0) break;
+      if (res < best) { best = res; xb.set(x); }
+      if (!(res < 1e3 * best) || !om) break; // divergence ou blocage
+    }
+    if (!(res <= best)) { x.set(xb); res = best; }
+    return { it, res };
+  }
+
+  // GMRES(m) préconditionné à droite : le résidu ne peut que décroître (pas de divergence)
+  function gmres2(M, V, b, x, tol, maxit, m) {
+    const { mul, prec, N } = blockOps(M, V);
+    const dot = (u, v) => { let q = 0; for (let i = 0; i < N; i++) q += u[i] * v[i]; return q; };
+    const Q = Array.from({ length: m + 1 }, () => new Float64Array(N)), Z = Array.from({ length: m }, () => new Float64Array(N));
+    const H = new Float64Array((m + 1) * m), cs = new Float64Array(m), sn = new Float64Array(m), g = new Float64Array(m + 1), y = new Float64Array(m);
+    const w = new Float64Array(N);
+    const bn = Math.sqrt(dot(b, b));
+    if (bn === 0) { x.fill(0); return { it: 0, res: 0 }; }
+    let it = 0, res = 1;
+    while (it < maxit) {
+      mul(x, w);
+      const q0 = Q[0];
+      for (let i = 0; i < N; i++) q0[i] = b[i] - w[i];
+      const beta = Math.sqrt(dot(q0, q0));
+      res = beta / bn;
+      if (res <= tol) break;
+      for (let i = 0; i < N; i++) q0[i] /= beta;
+      g.fill(0); g[0] = beta;
+      let j = 0;
+      while (j < m && it < maxit) {
+        prec(Q[j], Z[j]); mul(Z[j], w);
+        for (let i = 0; i <= j; i++) { const h = dot(w, Q[i]), qi = Q[i]; H[i * m + j] = h; for (let k = 0; k < N; k++) w[k] -= h * qi[k]; }
+        const hn = Math.sqrt(dot(w, w));
+        H[(j + 1) * m + j] = hn;
+        if (hn > 0) { const qn = Q[j + 1]; for (let k = 0; k < N; k++) qn[k] = w[k] / hn; }
+        for (let i = 0; i < j; i++) {
+          const t = cs[i] * H[i * m + j] + sn[i] * H[(i + 1) * m + j];
+          H[(i + 1) * m + j] = -sn[i] * H[i * m + j] + cs[i] * H[(i + 1) * m + j]; H[i * m + j] = t;
+        }
+        const ha = H[j * m + j], hb = H[(j + 1) * m + j], den = Math.hypot(ha, hb);
+        cs[j] = den ? ha / den : 1; sn[j] = den ? hb / den : 0;
+        H[j * m + j] = den; H[(j + 1) * m + j] = 0;
+        g[j + 1] = -sn[j] * g[j]; g[j] = cs[j] * g[j];
+        res = Math.abs(g[j + 1]) / bn;
+        j++; it++;
+        if (res <= tol || hn === 0) break;
+      }
+      for (let i = j - 1; i >= 0; i--) { let t = g[i]; for (let k = i + 1; k < j; k++) t -= H[i * m + k] * y[k]; y[i] = t / H[i * m + i]; }
+      for (let i = 0; i < j; i++) { const yi = y[i], zi = Z[i]; for (let k = 0; k < N; k++) x[k] += yi * zi[k]; }
+      if (res <= tol) break;
     }
     return { it, res };
   }
@@ -491,8 +546,8 @@
         if (i >= 0) { fr[i] += (p.Jr * area[e]) / 3; fi[i] += (p.Ji * area[e]) / 3; }
       }
     }
-    // ligne de contrainte : C·A + g'·σS/(jω) = jI/ω
-    for (let g = 0; g < nG; g++) { const p = props[gReg[g]]; fr[nA + g] = -(p.Ii || 0) / omega; fi[nA + g] = (p.Ir || 0) / omega; }
+    // ligne de contrainte : ω·C·A − jωσS·u = jI
+    for (let g = 0; g < nG; g++) { const p = props[gReg[g]]; fr[nA + g] = -(p.Ii || 0); fi[nA + g] = p.Ir || 0; }
     const assemble = () => {
       const vr = M.vr, vi = M.vi, pos = M.pos;
       vr.fill(0); vi.fill(0);
@@ -505,10 +560,10 @@
             vr[k] += (nu * (gb[3 * e + a] * gb[3 * e + b] + gc[3 * e + a] * gc[3 * e + b])) / (4 * ar);
             if (sg) vi[k] += (omega * sg * ar * (a === b ? 2 : 1)) / 12;
           }
-          if (sg && M.posG[3 * e + a] >= 0) { const c = (sg * ar) / 3; vr[M.posG[3 * e + a]] += c; vr[M.posGT[3 * e + a]] += c; }
+          if (sg && M.posG[3 * e + a] >= 0) { const c = (omega * sg * ar) / 3; vr[M.posG[3 * e + a]] += c; vr[M.posGT[3 * e + a]] += c; }
         }
       }
-      for (let g = 0; g < nG; g++) { const r = gReg[g]; vi[M.dg[nA + g]] -= (props[r].sigma * regS[r]) / omega; }
+      for (let g = 0; g < nG; g++) { const r = gReg[g]; vi[M.dg[nA + g]] -= omega * props[r].sigma * regS[r]; }
     };
     const xr = new Float64Array(nd), xi = new Float64Array(nd);
     const Ar = new Float64Array(n), Ai = new Float64Array(n);
@@ -534,7 +589,7 @@
       fields();
     } else if (any) {
       // Newton-Raphson sur (Re A, Im A) : ν dépend de l'induction crête, la relation n'est pas holomorphe.
-      // Jacobien réel en blocs 2×2 (non symétrique à cause de jωσ), résolu par BiCGStab.
+      // Point fixe rapide d'abord, puis Newton (jacobien réel en blocs 2×2, GMRES) si la saturation l'exige.
       const dnuE = new Float64Array(nt), V = new Float64Array(4 * M.ci.length);
       const updNu = () => {
         for (let e = 0; e < nt; e++) {
@@ -560,20 +615,20 @@
               // jωσ ∫NaNb : Δ/12 (1+δab)
               const mr = ((sAr + Ar[i]) * ar) / 12, mi = ((sAi + Ai[i]) * ar) / 12;
               Rr[d] += omega * sg * mi; Ri[d] -= omega * sg * mr;
-              if (g >= 0) { const c = (sg * ar) / 3; Rr[d] -= c * xr[nA + g]; Ri[d] -= c * xi[nA + g]; }
+              if (g >= 0) { const c = (omega * sg * ar) / 3; Rr[d] -= c * xr[nA + g]; Ri[d] -= c * xi[nA + g]; }
             }
           }
-          if (sg && g >= 0) { const c = (sg * ar) / 3; Rr[nA + g] -= c * sAr; Ri[nA + g] -= c * sAi; }
+          if (sg && g >= 0) { const c = (omega * sg * ar) / 3; Rr[nA + g] -= c * sAr; Ri[nA + g] -= c * sAi; }
         }
         for (let g = 0; g < nG; g++) {
-          const r = gReg[g], D = (props[r].sigma * regS[r]) / omega;
+          const r = gReg[g], D = omega * props[r].sigma * regS[r];
           Rr[nA + g] -= D * xi[nA + g]; Ri[nA + g] += D * xr[nA + g];
         }
         let s2 = 0;
         for (let i = 0; i < nd; i++) s2 += Rr[i] * Rr[i] + Ri[i] * Ri[i];
         return Math.sqrt(s2);
       };
-      const assembleJ = () => {
+      const assembleJ = (nuInit) => {
         V.fill(0);
         const pos = M.pos, qr = [0, 0, 0], qi = [0, 0, 0], wr = [0, 0, 0], wi = [0, 0, 0];
         for (let e = 0; e < nt; e++) {
@@ -600,53 +655,83 @@
               if (sg) { const m = (omega * sg * ar * (a === b ? 2 : 1)) / 12; V[4 * k + 1] -= m; V[4 * k + 2] += m; }
             }
             if (sg && M.posG[3 * e + a] >= 0) {
-              const c = (sg * ar) / 3, k1 = M.posG[3 * e + a], k2 = M.posGT[3 * e + a];
+              const c = (omega * sg * ar) / 3, k1 = M.posG[3 * e + a], k2 = M.posGT[3 * e + a];
               V[4 * k1] += c; V[4 * k1 + 3] += c; V[4 * k2] += c; V[4 * k2 + 3] += c;
             }
           }
         }
         for (let g = 0; g < nG; g++) {
-          const r = gReg[g], D = (props[r].sigma * regS[r]) / omega, k = M.dg[nA + g];
+          const r = gReg[g], D = omega * props[r].sigma * regS[r], k = M.dg[nA + g];
           V[4 * k + 1] += D; V[4 * k + 2] -= D;
         }
       };
-      fields(); updNu();
-      let rn = residual();
       let fn = 0;
       for (let i = 0; i < nd; i++) fn += fr[i] * fr[i] + fi[i] * fi[i];
       fn = Math.sqrt(fn);
       converged = false;
       const b2 = new Float64Array(2 * nd), dx = new Float64Array(2 * nd), x0r = new Float64Array(nd), x0i = new Float64Array(nd);
-      relRes = rn / fn;
-      // départ : perméabilité sécante à mi-saturation dans les matériaux saturables (évite un premier pas démesuré)
-      let nuInit = Float64Array.from(nuE);
-      for (let e = 0; e < nt; e++) { const p = props[reg[e]]; if (p.Js > 0) nuInit[e] = FT.nuOfB(p.mur, p.Js, 0.5 * p.Js)[0]; }
-      for (let it = 0; it < 60; it++) {
-        assembleJ();
-        nuInit = null;
-        for (let i = 0; i < nd; i++) { b2[2 * i] = Rr[i]; b2[2 * i + 1] = Ri[i]; }
-        dx.fill(0);
-        // Newton inexact : précision du solveur linéaire adaptée au résidu courant
-        cgIt += bicgstab2(M, V, b2, dx, Math.min(1e-2, Math.max(1e-8, 0.1 * relRes)), 20000).it;
-        iters++;
-        x0r.set(xr); x0i.set(xi);
-        let al = 1, rn2 = rn;
-        for (let ls = 0; ls < 10; ls++) {
-          for (let i = 0; i < nd; i++) { xr[i] = x0r[i] + al * dx[2 * i]; xi[i] = x0i[i] + al * dx[2 * i + 1]; }
-          fields(); updNu();
-          rn2 = residual();
-          if (rn2 < rn * (1 - 1e-4 * al)) break;
-          al *= 0.5;
+      const setState = (ur, ui) => { xr.set(ur); xi.set(ui); fields(); updNu(); return residual(); };
+      // pas de point fixe : perméabilité sécante figée, système complexe symétrique (COCG, rapide)
+      const picard = () => { assemble(); cgIt += cocg(M, fr, fi, xr, xi, 1e-9, 20000).it; iters++; fields(); updNu(); return residual(); };
+      // 1. point fixe tant qu'il converge vite (saturation faible ou modérée)
+      let rn = fn;
+      const bestR = new Float64Array(nd), bestI = new Float64Array(nd);
+      let bestRn = fn, k = 0;
+      for (; k < 10; k++) {
+        const r2 = picard();
+        if (r2 < bestRn) { bestRn = r2; bestR.set(xr); bestI.set(xi); }
+        if (r2 / fn < 1e-6) { converged = true; rn = r2; break; }
+        if (!(r2 < 0.3 * rn)) break; // contraction insuffisante : on passe à Newton
+        rn = r2;
+      }
+      relRes = (converged ? rn : bestRn) / fn;
+      if (!converged) {
+        // 2. Newton-Raphson sur (Re A, Im A) : ν dépend de l'induction crête, relation non holomorphe.
+        //    Jacobien réel en blocs 2×2 (non symétrique à cause de jωσ) : BiCGStab, GMRES en secours.
+        let nuInit = null;
+        if (bestRn < 0.3 * fn) rn = setState(bestR, bestI);
+        else {
+          // le point fixe part trop loin (forte saturation) : départ de zéro avec ν sécant à mi-saturation
+          xr.fill(0); xi.fill(0); rn = setState(xr, xi);
+          nuInit = Float64Array.from(nuE);
+          for (let e = 0; e < nt; e++) { const p = props[reg[e]]; if (p.Js > 0) nuInit[e] = FT.nuOfB(p.mur, p.Js, 0.5 * p.Js)[0]; }
         }
-        rn = rn2;
         relRes = rn / fn;
-        if (relRes < 1e-6) { converged = true; break; }
+        for (let it = 0; it < 60; it++) {
+          assembleJ(nuInit);
+          nuInit = null;
+          for (let i = 0; i < nd; i++) { b2[2 * i] = Rr[i]; b2[2 * i + 1] = Ri[i]; }
+          dx.fill(0);
+          // Newton inexact : précision du solveur linéaire adaptée au résidu courant
+          const tol = Math.min(1e-2, Math.max(1e-8, 0.1 * relRes)), rs = bicgstab2(M, V, b2, dx, tol, 3000);
+          cgIt += rs.it;
+          if (!(rs.res <= 10 * tol)) cgIt += gmres2(M, V, b2, dx, tol, 3000, 30).it; // repli robuste
+          iters++;
+          x0r.set(xr); x0i.set(xi);
+          let al = 1, rn2 = rn, ok = false;
+          for (let ls = 0; ls < 8; ls++) {
+            for (let i = 0; i < nd; i++) { xr[i] = x0r[i] + al * dx[2 * i]; xi[i] = x0i[i] + al * dx[2 * i + 1]; }
+            fields(); updNu();
+            rn2 = residual();
+            if (rn2 < rn * (1 - 1e-4 * al)) { ok = true; break; }
+            al *= 0.5;
+          }
+          if (!ok) {
+            // la direction de Newton n'apporte rien : un pas de point fixe, sinon on s'arrête
+            setState(x0r, x0i);
+            rn2 = picard();
+            if (!(rn2 < rn)) { rn = setState(x0r, x0i); break; }
+          }
+          rn = rn2;
+          relRes = rn / fn;
+          if (relRes < 1e-6) { converged = true; break; }
+        }
       }
     }
     fields();
     // post-traitement : densité de courant aux sommets, pertes, courant net par zone
     const gR = new Float64Array(nR), gI = new Float64Array(nR);
-    for (let g = 0; g < nG; g++) { gR[gReg[g]] = -xr[nA + g]; gI[gReg[g]] = -xi[nA + g]; }
+    for (let g = 0; g < nG; g++) { gR[gReg[g]] = -omega * xr[nA + g]; gI[gReg[g]] = -omega * xi[nA + g]; }
     const Jc = new Float64Array(3 * nt), pc = new Float64Array(3 * nt), pe = new Float64Array(nt), Hm = new Float64Array(nt), wE = new Float64Array(nt);
     const regP = new Float64Array(nR), regIr = new Float64Array(nR), regIi = new Float64Array(nR);
     const jr = [0, 0, 0], ji = [0, 0, 0];

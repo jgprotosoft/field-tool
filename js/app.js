@@ -172,8 +172,11 @@
       if (disp.max > 0) hi = disp.max;
     }
     if (useMax) {
-      hi = 0;
-      for (let k = 0; k < val.length; k++) if (val[k] > hi) hi = val[k];
+      // 98e centile des zones parcourues par du courant : les pointes (arêtes près d'un entrefer) saturent en rouge
+      const nz = [];
+      for (let k = 0; k < val.length; k++) if (val[k] > 0) nz.push(val[k]);
+      nz.sort((p, q) => p - q);
+      hi = nz.length ? nz[Math.min(nz.length - 1, Math.floor(nz.length * 0.98))] : 1;
       if (disp.max > 0) hi = disp.max;
     }
     if (!(hi > lo)) hi = lo + 1;
@@ -550,7 +553,7 @@
   function showResultsAC(r, d, out) {
     const P = result.props, w = r.omega;
     out.push("<b>Régime</b> : sinusoïdal, " + fmtHz(S.freq) + " — valeurs crête");
-    out.push("<b>Solveur</b> : " + (r.nonlinear ? "non linéaire, " + r.iters + " itérations de Newton" : "linéaire") + ", " + r.ms + " ms");
+    out.push("<b>Solveur</b> : " + (r.nonlinear ? "non linéaire, " + r.iters + " itérations" : "linéaire") + ", " + r.ms + " ms");
     if (!r.converged) out.push('<span class="warn">Convergence incomplète (résidu ' + r.relRes.toExponential(1) + ")</span>");
     if (P.some((p) => p.brx || p.bry)) out.push('<span class="warn">Aimants ignorés : leur champ continu ne fait pas partie du régime sinusoïdal.</span>');
     if (mesh.skin && mesh.skin.dMin < Infinity) {
@@ -1142,6 +1145,27 @@
         const { rect, L, make } = exampleKit();
         rect(0, 0, 6, 20); rect(10, 0, 16, 20);
         return make([L(3, 10, "cu", { I: 200 }), L(13, 10, "cu", { I: -200 })], { ac: true, freq: 1000, grid: 1, gridReal: 5, depth: 1000 });
+      },
+    },
+    {
+      name: "Barre profonde en encoche (sinusoïdal)", desc: "Barre de rotor 6×30 mm dans une encoche en tôles FeSi, 1000 A à 50 Hz : courant repoussé vers le haut",
+      build() {
+        const { poly, rect, L, make } = exampleKit();
+        poly([[0, 0], [60, 0], [60, 40], [33, 40], [33, 8], [27, 8], [27, 40], [0, 40]]);
+        rect(27, 8, 33, 38);
+        return make([L(10, 20, "fesi"), L(30, 23, "cu", { I: 1000 })], { ac: true, freq: 50, grid: 1, gridReal: 10, depth: 100 });
+      },
+    },
+    {
+      name: "Inductance à feuillard 20 kHz", desc: "Noyau ferrite E-I, entrefer 1 mm, 3 spires de feuillard cuivre 1 mm, 10 A : pertes près de l'entrefer",
+      build() {
+        const { poly, rect, L, make } = exampleKit();
+        poly([[0, 6], [5, 6], [5, 25], [15, 25], [15, 7], [25, 7], [25, 25], [35, 25], [35, 6], [40, 6], [40, 30], [0, 30]]);
+        rect(0, 0, 40, 6);
+        const ys = [11, 15.5, 20], labs = [L(2.5, 28, "ferrite"), L(20, 3, "ferrite")];
+        [13, 11.5, 10].forEach((x, k) => { rect(x, 7.5, x + 1, 23.5); labs.push(L(x + 0.5, ys[k], "cu", { I: -10 })); });
+        [26, 27.5, 29].forEach((x, k) => { rect(x, 7.5, x + 1, 23.5); labs.push(L(x + 0.5, ys[k], "cu", { I: 10 })); });
+        return make(labs, { ac: true, freq: 20000, grid: 0.5, gridReal: 5, depth: 15 });
       },
     },
   ];

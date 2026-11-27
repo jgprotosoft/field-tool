@@ -1,6 +1,6 @@
 // Service worker : garde l'application en cache pour l'utiliser hors connexion.
 // En ligne, on prend la version du serveur (et on met le cache à jour) ; hors ligne, on sert le cache.
-const CACHE = "fieldtool-v9";
+const CACHE = "fieldtool-v10";
 const FILES = [
   "./", "index.html", "aide.html", "style.css", "manifest.webmanifest",
   "js/materials.js", "js/geometry.js", "js/mesher.js", "js/fem.js", "js/app.js",
